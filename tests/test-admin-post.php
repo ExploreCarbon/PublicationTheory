@@ -51,6 +51,20 @@ class SPW_Admin_Post_Test extends WP_UnitTestCase {
 		$this->run_handler();
 	}
 
+	public function test_nonce_for_other_post_rejected() {
+		$a = self::factory()->post->create( array( 'post_status' => 'pending' ) );
+		$b = self::factory()->post->create( array( 'post_status' => 'pending' ) );
+		$this->post_as( self::factory()->user->create( array( 'role' => 'editor' ) ), $b, 'Note' );
+		$_POST['_wpnonce'] = wp_create_nonce( 'spw_send_back_' . $a );
+		$_REQUEST          = $_POST;
+		try {
+			$this->run_handler();
+			$this->fail( 'expected die' );
+		} catch ( WPDieException $e ) {
+			$this->assertSame( 'pending', get_post_status( $b ) );
+		}
+	}
+
 	public function test_author_without_cap_gets_error_and_post_unchanged() {
 		$id = self::factory()->post->create( array( 'post_status' => 'pending' ) );
 		$this->post_as( self::factory()->user->create( array( 'role' => 'author' ) ), $id, 'Note' );

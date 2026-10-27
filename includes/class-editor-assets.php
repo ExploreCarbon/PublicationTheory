@@ -27,10 +27,14 @@ final class Editor_Assets {
 			return;
 		}
 
-		$asset_file = SPW_DIR . 'build/index.asset.php';
-		$asset      = is_readable( $asset_file ) ? require $asset_file : array();
-		$deps       = $asset['dependencies'] ?? array( 'wp-api-fetch', 'wp-components', 'wp-data', 'wp-editor', 'wp-element', 'wp-i18n', 'wp-plugins', 'wp-a11y', 'wp-notices' );
-		$version    = $asset['version'] ?? SPW_VERSION;
+		$dir        = (string) apply_filters( 'spw_build_dir', SPW_DIR . 'build/' );
+		$asset_file = $dir . 'index.asset.php';
+		if ( ! is_readable( $asset_file ) || ! is_readable( $dir . 'index.js' ) ) {
+			return;
+		}
+		$asset   = require $asset_file;
+		$deps    = $asset['dependencies'] ?? array();
+		$version = $asset['version'] ?? SPW_VERSION;
 
 		wp_enqueue_script( self::HANDLE, SPW_URL . 'build/index.js', $deps, $version, true );
 		wp_set_script_translations( self::HANDLE, 'spw' );

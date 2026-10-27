@@ -17,6 +17,7 @@ class SPW_Editor_Test extends WP_UnitTestCase {
 		wp_dequeue_script( 'spw-workflow' );
 		wp_deregister_script( 'spw-workflow' );
 		remove_all_filters( 'spw_covered_post_types' );
+		remove_all_filters( 'spw_build_dir' );
 		unset( $GLOBALS['current_screen'] );
 		parent::tear_down();
 	}
@@ -84,5 +85,26 @@ class SPW_Editor_Test extends WP_UnitTestCase {
 		$this->assertSame( 403, rest_do_request( new WP_REST_Request( 'GET', '/spw/v1/posts/999999/feedback' ) )->get_status() );
 		wp_set_current_user( 0 );
 		$this->assertSame( 401, rest_do_request( new WP_REST_Request( 'GET', '/spw/v1/posts/999999/feedback' ) )->get_status() );
+	}
+
+	public function test_nothing_enqueued_when_build_missing() {
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'author' ) ) );
+		$this->screen_for( 'spw_book' );
+		add_filter(
+			'spw_build_dir',
+			static function () {
+				return '/nonexistent/build/';
+			}
+		);
+		SPW\Editor_Assets::enqueue();
+		$this->assertFalse( wp_script_is( 'spw-workflow', 'enqueued' ) );
+		$this->assertFalse( wp_script_is( 'spw-workflow', 'registered' ) );
+	}
+
+	public function test_can_publish_flag_for_editor_true_author_false() {
+		$this->screen_for( 'spw_book' );
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'editor' ) ) );
+		SPW\Editor_Assets::enqueue();
+		$this->assertStringContainsString( '"canPublish":true', implode( '', (array) wp_scripts()->get_data( 'spw-workflow', 'before' ) ) );
 	}
 }

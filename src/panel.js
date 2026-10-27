@@ -1,7 +1,7 @@
 import apiFetch from '@wordpress/api-fetch';
 import { Button, TextareaControl } from '@wordpress/components';
-import { useDispatch, useSelect, select as dataSelect } from '@wordpress/data';
-import { useCallback, useEffect, useState } from '@wordpress/element';
+import { useDispatch, useSelect, select, resolveSelect } from '@wordpress/data';
+import { useEffect, useRef, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { speak } from '@wordpress/a11y';
 import { store as noticesStore } from '@wordpress/notices';
@@ -11,6 +11,7 @@ import FeedbackList from './feedback-list';
 
 const STATUS_LABELS = {
 	draft: __( 'Draft', 'spw' ),
+	'auto-draft': __( 'Draft', 'spw' ),
 	pending: __( 'Pending review', 'spw' ),
 	publish: __( 'Published', 'spw' ),
 	future: __( 'Scheduled', 'spw' ),
@@ -18,8 +19,8 @@ const STATUS_LABELS = {
 };
 
 export default function Panel( { canPublish } ) {
-	const { postId, postType, status, isDirty } = useSelect( ( select ) => {
-		const editor = select( editorStore );
+	const { postId, postType, status, isDirty } = useSelect( ( sel ) => {
+		const editor = sel( editorStore );
 		return {
 			postId: editor.getCurrentPostId(),
 			postType: editor.getCurrentPostType(),
@@ -28,30 +29,48 @@ export default function Panel( { canPublish } ) {
 		};
 	}, [] );
 	const { savePost } = useDispatch( editorStore );
-	const { createErrorNotice, createSuccessNotice, removeNotice } =
-		useDispatch( noticesStore );
+	const { createSuccessNotice } = useDispatch( noticesStore );
 	const { receiveEntityRecords } = useDispatch( coreStore );
 
 	const [ entries, setEntries ] = useState( [] );
+	const [ feedbackError, setFeedbackError ] = useState( false );
 	const [ note, setNote ] = useState( '' );
 	const [ busy, setBusy ] = useState( false );
 	const [ error, setError ] = useState( '' );
+	const inFlight = useRef( false );
 
 	const base = `/spw/v1/posts/${ postId }`;
 
-	const loadFeedback = useCallback( async () => {
+	const fetchFeedback = async () => {
 		try {
 			setEntries( await apiFetch( { path: `${ base }/feedback` } ) );
+			setFeedbackError( false );
 		} catch ( e ) {
-			setEntries( [] );
+			setFeedbackError( true );
 		}
-	}, [ base ] );
+	};
 
 	useEffect( () => {
-		if ( postId ) {
-			loadFeedback();
+		if ( ! postId ) {
+			return undefined;
 		}
-	}, [ postId, loadFeedback ] );
+		let ignore = false;
+		apiFetch( { path: `/spw/v1/posts/${ postId }/feedback` } )
+			.then( ( result ) => {
+				if ( ! ignore ) {
+					setEntries( result );
+					setFeedbackError( false );
+				}
+			} )
+			.catch( () => {
+				if ( ! ignore ) {
+					setFeedbackError( true );
+				}
+			} );
+		return () => {
+			ignore = true;
+		};
+	}, [ postId ] );
 
 	/**
 	 * Refresh the editor's saved record so status (and the core Publish UI)
@@ -59,9 +78,11 @@ export default function Panel( { canPublish } ) {
 	 * into core-data with receiveEntityRecords, which the editor's selectors read.
 	 */
 	const refreshPost = async () => {
-		const type = dataSelect( coreStore ).getPostType( postType );
+		const type = await resolveSelect( coreStore ).getPostType( postType );
 		if ( ! type?.rest_base ) {
-			return;
+			throw new Error(
+				__( 'Could not refresh the editor. Reload the page.', 'spw' )
+			);
 		}
 		const record = await apiFetch( {
 			path: `/wp/v2/${ type.rest_base }/${ postId }?context=edit`,
@@ -70,15 +91,23 @@ export default function Panel( { canPublish } ) {
 	};
 
 	const run = async ( action, data, successMessage ) => {
+		if ( inFlight.current ) {
+			return;
+		}
+		inFlight.current = true;
 		setBusy( true );
 		setError( '' );
-		removeNotice( 'spw-error' );
 		try {
-			if ( action === 'submit' && isDirty ) {
+			if ( action === 'submit' && ( isDirty || status === 'auto-draft' ) ) {
 				await savePost();
+				if ( select( editorStore ).didPostSaveRequestFail() ) {
+					throw new Error(
+						__( 'Saving failed, so the post was not submitted. Try again.', 'spw' )
+					);
+				}
 			}
 			await apiFetch( { path: `${ base }/${ action }`, method: 'POST', data } );
-			await Promise.all( [ refreshPost(), loadFeedback() ] );
+			await Promise.all( [ refreshPost(), fetchFeedback() ] );
 			setNote( '' );
 			createSuccessNotice( successMessage, {
 				type: 'snackbar',
@@ -86,16 +115,11 @@ export default function Panel( { canPublish } ) {
 			} );
 			speak( successMessage, 'polite' );
 		} catch ( e ) {
-			const message =
-				e?.message || __( 'Something went wrong. Please try again.', 'spw' );
-			setError( message );
-			createErrorNotice( message, {
-				id: 'spw-error',
-				type: 'snackbar',
-				spokenMessage: null,
-			} );
-			speak( message, 'assertive' );
+			setError(
+				e?.message || __( 'Something went wrong. Please try again.', 'spw' )
+			);
 		} finally {
+			inFlight.current = false;
 			setBusy( false );
 		}
 	};
@@ -123,7 +147,7 @@ export default function Panel( { canPublish } ) {
 				<>
 					<Button
 						variant="primary"
-						disabled={ busy || status !== 'draft' }
+						disabled={ busy || ! [ 'draft', 'auto-draft' ].includes( status ) }
 						accessibleWhenDisabled
 						onClick={ () =>
 							run(
@@ -174,7 +198,11 @@ export default function Panel( { canPublish } ) {
 			) }
 
 			<div style={ { marginTop: '16px' } }>
-				<FeedbackList entries={ entries } />
+				{ feedbackError ? (
+					<p>{ __( 'Could not load feedback.', 'spw' ) }</p>
+				) : (
+					<FeedbackList entries={ entries } />
+				) }
 			</div>
 		</div>
 	);
