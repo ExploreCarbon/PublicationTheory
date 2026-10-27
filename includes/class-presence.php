@@ -39,9 +39,8 @@ final class Presence {
 			$user = get_userdata( $holder );
 			if ( $user ) {
 				$users[] = array(
-					'id'         => (int) $user->ID,
-					'name'       => (string) $user->display_name,
-					'avatar_url' => (string) get_avatar_url( $user->ID, array( 'size' => 48 ) ),
+					'id'   => (int) $user->ID,
+					'name' => (string) $user->display_name,
 				);
 			}
 		}

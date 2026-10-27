@@ -29,7 +29,7 @@ class SPW_Presence_Test extends WP_UnitTestCase {
 		$this->assertCount( 1, $res['spw_presence']['users'] );
 		$this->assertSame( $this->editor, $res['spw_presence']['users'][0]['id'] );
 		$this->assertSame( 'Ed', $res['spw_presence']['users'][0]['name'] );
-		$this->assertArrayHasKey( 'avatar_url', $res['spw_presence']['users'][0] );
+		$this->assertArrayNotHasKey( 'avatar_url', $res['spw_presence']['users'][0] );
 	}
 
 	public function test_presence_excludes_self() {

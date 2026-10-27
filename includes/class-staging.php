@@ -265,10 +265,39 @@ final class Staging {
 		}
 		clean_post_cache( $live_id );
 
+		self::move_notes( $copy_id, $live_id );
 		wp_delete_post( $copy_id, true );
 
 		Mailer::notify( 'staged_approved', $live_id, $actor, $author_id );
 		return $live_id;
+	}
+
+	/**
+	 * Move editorial notes (comment_type 'note', any status) from a copy to the live post,
+	 * so the review record survives the copy's deletion.
+	 */
+	private static function move_notes( int $copy_id, int $live_id ): void {
+		foreach ( array( 'all', 'trash', 'spam' ) as $status ) {
+			$ids = get_comments(
+				array(
+					'post_id' => $copy_id,
+					'type'    => 'note',
+					'status'  => $status,
+					'fields'  => 'ids',
+					'number'  => 0,
+				)
+			);
+			foreach ( $ids as $comment_id ) {
+				wp_update_comment(
+					array(
+						'comment_ID'      => (int) $comment_id,
+						'comment_post_ID' => $live_id,
+					)
+				);
+			}
+		}
+		wp_update_comment_count( $live_id );
+		wp_update_comment_count( $copy_id );
 	}
 
 	/**

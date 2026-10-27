@@ -24,32 +24,59 @@ class SPW_Notes_Test extends WP_UnitTestCase {
 	}
 
 	public function test_notes_enabled_for_covered_types() {
-		foreach ( SPW\Types::covered() as $type ) {
-			if ( ! post_type_supports( $type, 'editor' ) ) {
-				continue;
-			}
-			$found = false;
-			foreach ( (array) get_all_post_type_supports( $type )['editor'] as $item ) {
-				$found = $found || ( is_array( $item ) && ! empty( $item['notes'] ) );
-			}
-			$this->assertTrue( $found, "Notes not enabled for $type" );
-		}
-	}
-
-	public function test_notes_enabled_for_custom_type_and_keeps_other_args() {
+		register_post_type( 'spw_plain', array( 'public' => true, 'show_in_rest' => true, 'supports' => array( 'title', 'editor' ) ) );
 		register_post_type(
 			'spw_thing',
 			array(
 				'public'       => true,
 				'show_in_rest' => true,
-				'supports'     => array( 'title', 'editor' => array( 'default-mode' => 'template-locked' ) ),
+				'supports'     => array( 'title', 'editor' => array( 'default-mode' => 'text' ) ),
 			)
 		);
+		$this->assertContains( 'spw_plain', SPW\Types::covered() );
+		$this->assertContains( 'spw_thing', SPW\Types::covered() );
+		$this->assertFalse( $this->has_notes( 'spw_plain' ), 'precondition: no notes before enable' );
+
 		SPW\Notes::enable();
+
+		foreach ( SPW\Types::covered() as $type ) {
+			if ( post_type_supports( $type, 'editor' ) ) {
+				$this->assertTrue( $this->has_notes( $type ), "Notes not enabled for $type" );
+			}
+		}
 		$editor = get_all_post_type_supports( 'spw_thing' )['editor'];
 		$this->assertTrue( $editor[0]['notes'] );
-		$this->assertSame( 'template-locked', $editor[1]['default-mode'] );
+		$this->assertSame( 'text', $editor[1]['default-mode'] );
+
+		unregister_post_type( 'spw_plain' );
 		unregister_post_type( 'spw_thing' );
+	}
+
+	private function has_notes( string $type ): bool {
+		$editor = get_all_post_type_supports( $type )['editor'] ?? null;
+		foreach ( is_array( $editor ) ? $editor : array() as $item ) {
+			if ( is_array( $item ) && ! empty( $item['notes'] ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	public function test_notes_move_to_live_post_on_approve() {
+		$live = self::factory()->post->create( array( 'post_author' => $this->author, 'post_status' => 'publish' ) );
+		$copy = SPW\Staging::open_for( $live, $this->author );
+		wp_set_current_user( $this->author );
+		$this->assertSame( 201, $this->add_note( $copy )->get_status() );
+		$this->assertSame( 201, $this->add_note( $copy )->get_status() );
+		wp_update_post( array( 'ID' => $copy, 'post_status' => 'pending' ) );
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'editor' ) ) );
+
+		$this->assertSame( $live, SPW\Staging::approve( $copy ) );
+
+		$this->assertNull( get_post( $copy ) );
+		$notes = get_comments( array( 'post_id' => $live, 'type' => 'note', 'status' => 'all', 'fields' => 'ids' ) );
+		$this->assertCount( 2, $notes );
+		$this->assertSame( 0, (int) get_comments_number( $live ), 'notes do not count as public comments' );
 	}
 
 	public function test_notes_and_presence_are_registered_on_boot() {
