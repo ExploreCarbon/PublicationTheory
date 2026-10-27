@@ -11,6 +11,90 @@ class SPW_Notes_Test extends WP_UnitTestCase {
 		wp_set_current_user( 0 );
 	}
 
+	public function tear_down() {
+		remove_all_filters( 'wp_update_comment_data' );
+		foreach ( array( 'spw_plain', 'spw_thing' ) as $type ) {
+			if ( post_type_exists( $type ) ) {
+				unregister_post_type( $type );
+			}
+		}
+		wp_set_current_user( 0 );
+		parent::tear_down();
+	}
+
+	private function pending_copy_with_notes( array $statuses ): array {
+		$live = self::factory()->post->create( array( 'post_author' => $this->author, 'post_status' => 'publish', 'post_content' => 'old' ) );
+		$copy = SPW\Staging::open_for( $live, $this->author );
+		wp_update_post( array( 'ID' => $copy, 'post_status' => 'pending', 'post_content' => 'new' ) );
+		$ids    = array();
+		$parent = 0;
+		foreach ( $statuses as $i => $status ) {
+			$ids[] = $id = wp_insert_comment(
+				array(
+					'comment_post_ID'  => $copy,
+					'comment_type'     => 'note',
+					'comment_content'  => "note $i",
+					'comment_approved' => $status,
+					'comment_parent'   => 'reply' === ( $statuses[ $i ] ?? '' ) ? $parent : 0,
+					'user_id'          => $this->author,
+				)
+			);
+			$parent = $parent ?: $id;
+		}
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'editor' ) ) );
+		return array( $live, $copy, $ids );
+	}
+
+	public function test_notes_of_every_status_and_replies_move_on_approve() {
+		list( $live, $copy, $ids ) = $this->pending_copy_with_notes( array( '1', '0', 'trash', 'spam' ) );
+		$reply = wp_insert_comment(
+			array(
+				'comment_post_ID'  => $copy,
+				'comment_type'     => 'note',
+				'comment_content'  => 'reply',
+				'comment_approved' => '1',
+				'comment_parent'   => $ids[0],
+				'user_id'          => $this->author,
+			)
+		);
+		$this->assertSame( $live, SPW\Staging::approve( $copy ) );
+		foreach ( array_merge( $ids, array( $reply ) ) as $id ) {
+			$this->assertSame( $live, (int) get_comment( $id )->comment_post_ID, "comment $id not moved" );
+		}
+		$this->assertSame( $ids[0], (int) get_comment( $reply )->comment_parent );
+	}
+
+	public function test_failed_note_move_keeps_copy_sends_no_mail_and_retry_completes() {
+		list( $live, $copy, $ids ) = $this->pending_copy_with_notes( array( '1', '1', '1' ) );
+		reset_phpmailer_instance();
+		$fail_id = $ids[1];
+		$filter  = static function ( $data ) use ( $fail_id ) {
+			return (int) ( $data['comment_ID'] ?? 0 ) === $fail_id ? new WP_Error( 'blocked', 'blocked' ) : $data;
+		};
+		add_filter( 'wp_update_comment_data', $filter );
+
+		$res = SPW\Staging::approve( $copy );
+
+		$this->assertWPError( $res );
+		$this->assertSame( 'spw_notes_move_failed', $res->get_error_code() );
+		$this->assertArrayHasKey( 'spw_notes_move_failed', SPW\Admin_Post::error_messages() );
+		$this->assertNotNull( get_post( $copy ), 'copy must survive' );
+		$this->assertSame( $copy, (int) get_comment( $ids[1] )->comment_post_ID );
+		$this->assertSame( $copy, (int) get_comment( $ids[2] )->comment_post_ID, 'later notes intact' );
+		$this->assertSame( array(), tests_retrieve_phpmailer_instance()->mock_sent, 'no staged_approved mail' );
+		$this->assertSame( 'new', get_post_field( 'post_content', $live ), 'merge already applied' );
+
+		remove_filter( 'wp_update_comment_data', $filter );
+		$this->assertSame( $live, SPW\Staging::approve( $copy ) );
+		$this->assertNull( get_post( $copy ) );
+		foreach ( $ids as $id ) {
+			$this->assertSame( $live, (int) get_comment( $id )->comment_post_ID );
+		}
+		$this->assertCount( 3, get_comments( array( 'post_id' => $live, 'type' => 'note', 'status' => 'all' ) ) );
+		$this->assertSame( 'new', get_post_field( 'post_content', $live ) );
+		$this->assertNotEmpty( tests_retrieve_phpmailer_instance()->mock_sent, 'mail sent on success' );
+	}
+
 	private function add_note( int $post_id ) {
 		$req = new WP_REST_Request( 'POST', '/wp/v2/comments' );
 		$req->set_body_params(
@@ -47,9 +131,6 @@ class SPW_Notes_Test extends WP_UnitTestCase {
 		$editor = get_all_post_type_supports( 'spw_thing' )['editor'];
 		$this->assertTrue( $editor[0]['notes'] );
 		$this->assertSame( 'text', $editor[1]['default-mode'] );
-
-		unregister_post_type( 'spw_plain' );
-		unregister_post_type( 'spw_thing' );
 	}
 
 	private function has_notes( string $type ): bool {

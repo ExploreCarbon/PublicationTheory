@@ -29,6 +29,7 @@ final class Admin_Post {
 			'spw_not_covered' => __( 'This content type is not covered by the workflow.', 'spw' ),
 			'spw_not_staged'  => __( 'This is not a staged edit.', 'spw' ),
 			'spw_live_missing' => __( 'The live item no longer exists.', 'spw' ),
+			'spw_notes_move_failed' => __( 'Notes could not be moved to the live item, so nothing was deleted. Try approving again.', 'spw' ),
 			'spw_failed'      => __( 'Could not send this back.', 'spw' ),
 		);
 	}

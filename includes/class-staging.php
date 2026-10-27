@@ -265,7 +265,11 @@ final class Staging {
 		}
 		clean_post_cache( $live_id );
 
-		self::move_notes( $copy_id, $live_id );
+		// Never delete the copy while any note still points at it; a retry resumes where this stopped.
+		$moved = self::move_notes( $copy_id, $live_id );
+		if ( is_wp_error( $moved ) ) {
+			return $moved;
+		}
 		wp_delete_post( $copy_id, true );
 
 		Mailer::notify( 'staged_approved', $live_id, $actor, $author_id );
@@ -274,9 +278,9 @@ final class Staging {
 
 	/**
 	 * Move editorial notes (comment_type 'note', any status) from a copy to the live post,
-	 * so the review record survives the copy's deletion.
+	 * so the review record survives the copy's deletion. Returns true or WP_Error on first failure.
 	 */
-	private static function move_notes( int $copy_id, int $live_id ): void {
+	private static function move_notes( int $copy_id, int $live_id ) {
 		foreach ( array( 'all', 'trash', 'spam' ) as $status ) {
 			$ids = get_comments(
 				array(
@@ -288,16 +292,23 @@ final class Staging {
 				)
 			);
 			foreach ( $ids as $comment_id ) {
-				wp_update_comment(
+				$updated = wp_update_comment(
 					array(
 						'comment_ID'      => (int) $comment_id,
 						'comment_post_ID' => $live_id,
-					)
+					),
+					true
 				);
+				if ( is_wp_error( $updated ) || false === $updated ) {
+					wp_update_comment_count( $live_id );
+					wp_update_comment_count( $copy_id );
+					return new \WP_Error( 'spw_notes_move_failed', __( 'The notes could not be moved to the live item. Nothing was deleted; try approving again.', 'spw' ), array( 'status' => 500 ) );
+				}
 			}
 		}
 		wp_update_comment_count( $live_id );
 		wp_update_comment_count( $copy_id );
+		return true;
 	}
 
 	/**
