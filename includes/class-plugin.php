@@ -12,6 +12,6 @@ final class Plugin {
 	 * Instantiate and register all components.
 	 */
 	public static function boot(): void {
-		// Components are registered here by later tasks.
+		Caps::register();
 	}
 }
