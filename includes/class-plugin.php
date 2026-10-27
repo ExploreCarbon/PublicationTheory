@@ -18,5 +18,7 @@ final class Plugin {
 		Workflow::register();
 		Rest::register();
 		Queue::register();
+		Admin_Post::register();
+		Editor_Assets::register();
 	}
 }

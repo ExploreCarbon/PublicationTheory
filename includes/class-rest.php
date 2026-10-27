@@ -42,6 +42,16 @@ final class Rest {
 		);
 		register_rest_route(
 			'spw/v1',
+			'/posts/(?P<id>\d+)/feedback',
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( __CLASS__, 'feedback' ),
+				'permission_callback' => array( __CLASS__, 'can_read_feedback' ),
+				'args'                => array( 'id' => $id_arg ),
+			)
+		);
+		register_rest_route(
+			'spw/v1',
 			'/posts/(?P<id>\d+)/submit',
 			array(
 				'methods'             => 'POST',
@@ -76,6 +86,39 @@ final class Rest {
 			return new \WP_Error( 'rest_post_invalid_id', __( 'Invalid post ID.', 'spw' ), array( 'status' => 404 ) );
 		}
 		return current_user_can( 'edit_post', $post->ID ) ? true : self::forbidden();
+	}
+
+	/**
+	 * Permission: may edit this post. Denied (401/403) before any existence check, so IDs cannot be probed.
+	 */
+	public static function can_read_feedback( \WP_REST_Request $request ) {
+		$id = (int) $request['id'];
+		if ( $id <= 0 || ! current_user_can( 'edit_post', $id ) ) {
+			return self::forbidden();
+		}
+		$post = get_post( $id );
+		if ( ! $post || ! Types::is_covered( $post->post_type ) ) {
+			return new \WP_Error( 'rest_post_invalid_id', __( 'Invalid post ID.', 'spw' ), array( 'status' => 404 ) );
+		}
+		return true;
+	}
+
+	/**
+	 * GET feedback history, newest first.
+	 */
+	public static function feedback( \WP_REST_Request $request ) {
+		$out = array();
+		foreach ( Feedback::history( (int) $request['id'] ) as $entry ) {
+			$user  = get_userdata( (int) ( $entry['editor_id'] ?? 0 ) );
+			$stamp = strtotime( (string) ( $entry['time'] ?? '' ) . ' UTC' );
+			$out[] = array(
+				'id'          => (string) ( $entry['id'] ?? '' ),
+				'editor_name' => $user ? $user->display_name : '',
+				'note'        => (string) ( $entry['note'] ?? '' ),
+				'time'        => $stamp ? gmdate( 'c', $stamp ) : '',
+			);
+		}
+		return $out;
 	}
 
 	/**

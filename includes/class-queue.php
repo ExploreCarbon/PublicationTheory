@@ -84,7 +84,27 @@ final class Queue {
 		$table = new Queue_Table();
 		$table->prepare_items();
 		echo '<div class="wrap"><h1>' . esc_html__( 'Review Queue', 'spw' ) . '</h1>';
+		echo '<style>.spw-send-back summary{cursor:pointer;display:inline-block;min-height:24px;line-height:24px}.row-actions:has(.spw-send-back[open]){position:static}</style>';
+		self::render_notice();
 		$table->display();
 		echo '</div>';
+	}
+
+	/**
+	 * Result notice from admin-post redirect. Message text comes only from an allowlist.
+	 */
+	private static function render_notice(): void {
+		$notice = isset( $_GET['spw_notice'] ) ? sanitize_key( wp_unslash( $_GET['spw_notice'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification
+		if ( 'sent' === $notice ) {
+			echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Sent back to the author.', 'spw' ) . '</p></div>';
+			return;
+		}
+		if ( 'error' !== $notice ) {
+			return;
+		}
+		$code     = isset( $_GET['spw_code'] ) ? sanitize_key( wp_unslash( $_GET['spw_code'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification
+		$messages = Admin_Post::error_messages();
+		$message  = $messages[ $code ] ?? $messages['spw_failed'];
+		echo '<div class="notice notice-error" role="alert"><p>' . esc_html( $message ) . '</p></div>';
 	}
 }

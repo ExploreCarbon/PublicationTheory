@@ -92,7 +92,44 @@ final class Queue_Table extends \WP_List_Table {
 				esc_html__( 'Review', 'spw' )
 			),
 		);
+		$object = get_post_type_object( $item->post_type );
+		if ( $object && current_user_can( $object->cap->edit_others_posts ) ) {
+			$actions['send_back'] = $this->send_back_form( $item, $title );
+		}
 		return '<strong><a class="row-title" href="' . esc_url( $link ) . '">' . esc_html( $title ) . '</a></strong>' . $this->row_actions( $actions );
+	}
+
+	/**
+	 * Inline no-JS send-back form (details/summary).
+	 */
+	private function send_back_form( \WP_Post $item, string $title ): string {
+		$id       = (int) $item->ID;
+		$field_id = 'spw-note-' . $id;
+		ob_start();
+		?>
+		<details class="spw-send-back">
+			<summary>
+				<?php esc_html_e( 'Send back', 'spw' ); ?>
+				<span class="screen-reader-text">
+					<?php
+					/* translators: %s: post title */
+					echo esc_html( sprintf( __( '"%s" to the author', 'spw' ), $title ) );
+					?>
+				</span>
+			</summary>
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+				<input type="hidden" name="action" value="spw_send_back" />
+				<input type="hidden" name="post_id" value="<?php echo esc_attr( (string) $id ); ?>" />
+				<?php wp_nonce_field( 'spw_send_back_' . $id ); ?>
+				<p>
+					<label for="<?php echo esc_attr( $field_id ); ?>"><?php esc_html_e( 'Feedback for the author', 'spw' ); ?></label><br />
+					<textarea id="<?php echo esc_attr( $field_id ); ?>" name="note" rows="3" cols="30" required></textarea>
+				</p>
+				<p><button type="submit" class="button button-small"><?php esc_html_e( 'Send back', 'spw' ); ?></button></p>
+			</form>
+		</details>
+		<?php
+		return trim( (string) ob_get_clean() );
 	}
 
 	protected function column_type( $item ) {
