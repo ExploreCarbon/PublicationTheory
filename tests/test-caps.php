@@ -1,4 +1,5 @@
 <?php
+if ( ! defined( 'ABSPATH' ) && 'cli' !== PHP_SAPI ) { exit; }
 class SPW_Caps_Test extends WP_UnitTestCase {
 
 	private $author;

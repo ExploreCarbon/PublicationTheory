@@ -1,4 +1,5 @@
 <?php
+if ( ! defined( 'ABSPATH' ) && 'cli' !== PHP_SAPI ) { exit; }
 class SPW_Editor_Test extends WP_UnitTestCase {
 
 	public function set_up() {

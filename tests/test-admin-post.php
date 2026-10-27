@@ -1,4 +1,5 @@
 <?php
+if ( ! defined( 'ABSPATH' ) && 'cli' !== PHP_SAPI ) { exit; }
 class SPW_Admin_Post_Test extends WP_UnitTestCase {
 
 	public function tear_down() {

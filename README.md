@@ -21,9 +21,10 @@ Adds an editorial review workflow to covered post types (every public post type 
 
 - **Roles and capabilities.** Nothing is written to stored roles. A `user_has_cap` filter denies `publish_*` for covered types to anyone without `edit_others_*` (Authors, Contributors). Authors submit for review; Editors and Administrators publish. Authors edit *staged copies* of live content instead of the live post.
 - **Phase 1:** Submit for review, Review Queue (top-level menu with pending badge, `edit_others_posts`), send back with a required note, feedback history (post meta `_spw_feedback`), sidebar panel in the block editor.
-- **Phase 1b:** Staged edits. An Author opening a live item gets a private draft copy; submitting it puts it in the queue as an "Update" item. Editors review a field-by-field diff (title, content, excerpt, featured image, allow-listed meta, terms), then approve (3-way merge into the live post, copy removed) or send back. Copies are hidden from front end, sitemaps and REST listings.
+- **Phase 1b:** Staged edits. An Author opening a live item gets a private draft copy; submitting it puts it in the queue as a "Staged edit" item. Editors review a field-by-field diff (title, content, excerpt, featured image, allow-listed meta, terms), then approve (3-way merge into the live post, copy removed) or send back. Copies are hidden from front end, sitemaps and REST listings. Approve copies the copy's feedback history and notes to the live post. **Discard** (review screen, live-post notice for Editors, or the interstitial for the copy's own author) permanently deletes a copy and its notes; the live item is unchanged. Another Author who opens a held item is told who holds the copy and to ask an Editor to discard it. Publishing a copy from the editor is refused ("Use Approve on the review screen").
 - **Phase 2:** WordPress Notes (block comments) enabled on covered types; editing presence notice ("X is also editing") via Heartbeat and the post edit lock.
-- **Emails.** Events: `submitted`, `sent_back`, `published`, `staged_submitted`, `staged_approved`. Failures and sends are recorded in **Tools > Workflow Log** (last 500 entries, option `spw_workflow_log`, `manage_options`).
+- **Switch to draft.** Editors/Admins may move a pending item back to draft through the normal UI without a note; the plugin records an automatic feedback entry ("Returned to draft by X without a comment.") and emails the author.
+- **Emails.** Events: `submitted`, `sent_back`, `published`, `staged_submitted`, `staged_approved`. `published` is sent only when a user publishes or a scheduled post goes live (not for imports/CLI with no user). Failures and sends are recorded in **Tools > Workflow Log** (last 500 entries, option `spw_workflow_log`, `manage_options`).
 
 ## Filters
 | Filter | Purpose |
@@ -31,8 +32,9 @@ Adds an editorial review workflow to covered post types (every public post type 
 | `spw_covered_post_types` | Array of post type slugs the workflow covers. |
 | `spw_email_recipients` | `( int[] $user_ids, string $event, int $post_id )` recipient user IDs. |
 | `spw_email_message` | `( array $message, string $event, int $post_id )` subject/body override. |
-| `spw_queue_item_kind` | `( string $kind, int $post_id )` "Kind" column label in the queue (default "New"; staged copies say "Update"). |
-| `spw_allowed_live_meta_keys` | Meta keys that approval may copy from a staged copy to the live post. |
+| `spw_queue_item_kind` | `( string $kind, int $post_id )` "Kind" column label in the queue (default "New"; staged copies say "Staged edit"). |
+| `spw_allowed_live_meta_keys` | `( string[] $keys )` meta keys (a trailing `_` marks a prefix) that requests by non-publishers may still write on **live** posts (housekeeping such as `_oembed_`). `_spw_*` is never allowed. |
+| `spw_notify_enabled` | `( bool $enabled, string $event, int $post_id )` return false to veto a workflow email. |
 | `spw_build_dir` | Directory holding the editor build (default `build/`). |
 
 ## Deactivation and uninstall
@@ -51,11 +53,15 @@ git diff --exit-code build/   # must be clean once the regenerated build is comm
 Local's PHP has no php.ini: put the Local PHP `bin/win32` directory on `PATH` and set `PHPRC` to a directory containing a `php.ini` with `extension_dir`, `extension=mysqli`, `extension=mbstring`, `extension=openssl`, `extension=curl`. Tests use a MySQL DB named `spw_test` only (default host `127.0.0.1:10096`, Local's MySQL port for this site); the bootstrap refuses any DB name not starting with `spw_test`.
 
 ## Known limitations
-- Comment moderation on live posts by Authors is not restricted by this plugin.
+- Authors cannot moderate comments on their own live posts (`edit_comment` maps to `edit_post`, which is denied on live content).
 - Notes on live posts are not readable by Authors (they have no edit access to the live post; they see notes on their staged copy).
 - `wp_count_posts()` (core list-table status counts, dashboard) includes staged copies.
 - Live co-editing is **not** included. That is a separate Phase 3 spike (REST polling, since WP Engine does not suit websockets).
 - Static accessibility audit only; no assistive-technology or browser run has been done (see checklist).
+
+## Deploy
+- Dev-only (not needed on the server): `tests/`, `src/`, `composer.json`, `phpunit.xml.dist`, `package.json`, `package-lock.json`. Test PHP files exit when requested over the web.
+- Activate the plugin in wp-admin after deploy (there is no activation hook).
 
 ## Manual QA checklist (browser, not yet done)
 1. Author: create draft, Submit for review; status becomes Pending; editors get email; Workflow Log shows the send.

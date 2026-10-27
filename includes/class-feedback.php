@@ -20,7 +20,24 @@ final class Feedback {
 		if ( '' === $note ) {
 			return new \WP_Error( 'spw_empty_note', __( 'Feedback note cannot be empty.', 'spw' ) );
 		}
+		return self::store( $post_id, $editor_id, $note );
+	}
 
+	/**
+	 * Record an automatic (system-written) entry, e.g. an Editor's plain "Switch to draft".
+	 *
+	 * @return int|\WP_Error
+	 */
+	public static function add_automatic( int $post_id, int $editor_id, string $note ) {
+		return self::store( $post_id, $editor_id, trim( sanitize_textarea_field( $note ) ) );
+	}
+
+	/**
+	 * Persist one entry.
+	 *
+	 * @return int|\WP_Error
+	 */
+	private static function store( int $post_id, int $editor_id, string $note ) {
 		$entry = array(
 			'id'        => wp_generate_uuid4(),
 			'editor_id' => $editor_id,

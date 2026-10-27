@@ -1,4 +1,5 @@
 <?php
+if ( ! defined( 'ABSPATH' ) && 'cli' !== PHP_SAPI ) { exit; }
 class SPW_Workflow_Test extends WP_UnitTestCase {
 
 	private $author;
@@ -145,11 +146,52 @@ class SPW_Workflow_Test extends WP_UnitTestCase {
 		$this->assertSame( 401, rest_do_request( new WP_REST_Request( 'POST', '/spw/v1/posts/' . $id2 . '/submit' ) )->get_status() );
 	}
 
-	public function test_editor_cannot_pending_to_draft_without_send_back() {
+	public function test_editor_switch_to_draft_records_auto_feedback_and_mails() {
 		$id = $this->make( 'pending' );
+		reset_phpmailer_instance();
 		wp_set_current_user( $this->editor );
 		wp_update_post( array( 'ID' => $id, 'post_status' => 'draft' ) );
+		$this->assertSame( 'draft', get_post_status( $id ) );
+		$latest = SPW\Feedback::latest( $id );
+		$this->assertSame( $this->editor, (int) $latest['editor_id'] );
+		$this->assertStringContainsString( 'without a comment', $latest['note'] );
+		$this->assertSame( array( 'ann@example.org' ), $this->recipients() );
+	}
+
+	public function test_non_owner_author_pending_to_draft_reverted() {
+		$id    = $this->make( 'pending' );
+		$other = self::factory()->user->create( array( 'role' => 'author' ) );
+		wp_set_current_user( $other );
+		wp_update_post( array( 'ID' => $id, 'post_status' => 'draft' ) );
 		$this->assertSame( 'pending', get_post_status( $id ) );
+		$this->assertNull( SPW\Feedback::latest( $id ) );
+	}
+
+	public function test_published_mail_rules_and_veto() {
+		$id = $this->make( 'pending' );
+		reset_phpmailer_instance();
+		wp_publish_post( $id ); // No user: import / CLI.
+		$this->assertSame( array(), $this->recipients() );
+
+		$future = self::factory()->post->create(
+			array( 'post_author' => $this->author, 'post_status' => 'future', 'post_date' => gmdate( 'Y-m-d H:i:s', time() + DAY_IN_SECONDS ) )
+		);
+		reset_phpmailer_instance();
+		wp_publish_post( $future ); // Scheduled publish via cron.
+		$this->assertSame( array( 'ann@example.org' ), $this->recipients() );
+
+		$id2 = $this->make( 'pending' );
+		reset_phpmailer_instance();
+		wp_set_current_user( $this->editor );
+		wp_update_post( array( 'ID' => $id2, 'post_status' => 'publish' ) );
+		$this->assertSame( array( 'ann@example.org' ), $this->recipients() );
+
+		add_filter( 'spw_notify_enabled', '__return_false' );
+		$id3 = $this->make( 'pending' );
+		reset_phpmailer_instance();
+		wp_update_post( array( 'ID' => $id3, 'post_status' => 'publish' ) );
+		remove_filter( 'spw_notify_enabled', '__return_false' );
+		$this->assertSame( array(), $this->recipients() );
 	}
 
 	public function test_author_can_withdraw_own_pending() {

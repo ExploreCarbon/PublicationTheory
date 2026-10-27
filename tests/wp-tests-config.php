@@ -1,4 +1,5 @@
 <?php
+if ( ! defined( 'ABSPATH' ) && 'cli' !== PHP_SAPI ) { exit; }
 $db_name = trim( (string) ( getenv( 'SPW_TEST_DB_NAME' ) ?: 'spw_test' ) );
 if ( ! preg_match( '/^spw_test/i', $db_name ) ) {
 	fwrite( STDERR, "Refusing to run: test DB name must start with 'spw_test' (got '$db_name').\n" );

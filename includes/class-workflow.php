@@ -45,6 +45,9 @@ final class Workflow {
 		// A staged copy never becomes public, whoever asks (approve merges it into the live post instead).
 		if ( $id && Staging::is_staged( $id ) && in_array( $new, array( 'publish', 'future', 'private' ), true ) ) {
 			$data['post_status'] = 'pending';
+			if ( $user > 0 ) {
+				set_transient( 'spw_copy_publish_blocked_' . $user, $id, MINUTE_IN_SECONDS );
+			}
 			return $data;
 		}
 
@@ -57,7 +60,8 @@ final class Workflow {
 			return $data;
 		}
 
-		if ( $old && 'pending' === $prior && 'draft' === $new && ! self::$sending_back && (int) $old->post_author !== $user ) {
+		// Publishers may "Switch to draft" (an automatic feedback entry is recorded on transition).
+		if ( $old && 'pending' === $prior && 'draft' === $new && ! self::$sending_back && (int) $old->post_author !== $user && ! Caps::can_publish( $user, $type ) ) {
 			$data['post_status'] = 'pending';
 		}
 		return $data;
@@ -78,8 +82,15 @@ final class Workflow {
 		$staged = Staging::is_staged( (int) $post->ID );
 		if ( 'pending' === $new && $user > 0 && ! Caps::can_publish( $user, $post->post_type ) ) {
 			Mailer::notify( $staged ? 'staged_submitted' : 'submitted', $post->ID, $user );
-		} elseif ( 'publish' === $new && ! $staged ) {
+		} elseif ( 'publish' === $new && ! $staged && ( $user > 0 || 'future' === $old ) ) {
+			// No user and not a scheduled publish: import / CLI / migration, no email.
 			Mailer::notify( 'published', $post->ID, $user );
+		} elseif ( 'draft' === $new && 'pending' === $old && $user > 0 && ! self::$sending_back
+			&& (int) $post->post_author !== $user && Caps::can_publish( $user, $post->post_type ) ) {
+			$actor = get_userdata( $user );
+			/* translators: %s: user display name */
+			Feedback::add_automatic( (int) $post->ID, $user, sprintf( __( 'Returned to draft by %s without a comment.', 'spw' ), $actor ? $actor->display_name : '' ) );
+			Mailer::notify( 'sent_back', $post->ID, $user );
 		}
 	}
 

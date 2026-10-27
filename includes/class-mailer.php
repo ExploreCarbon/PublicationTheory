@@ -36,6 +36,16 @@ final class Mailer {
 		if ( ! $post ) {
 			return;
 		}
+		/**
+		 * Veto a workflow email.
+		 *
+		 * @param bool   $enabled Send it.
+		 * @param string $event   Event.
+		 * @param int    $post_id Post ID.
+		 */
+		if ( ! apply_filters( 'spw_notify_enabled', true, $event, $post_id ) ) {
+			return;
+		}
 
 		$recipients = self::recipients( $event, $post, $actor_id, $author_id );
 		/**
@@ -163,7 +173,7 @@ final class Mailer {
 		}
 
 		// get_edit_post_link() is null when the current user cannot edit the post.
-		$link = get_edit_post_link( $post->ID, 'raw' );
+		$link = 'staged_submitted' === $event ? Staging::review_url( (int) $post->ID ) : get_edit_post_link( $post->ID, 'raw' );
 		if ( ! $link ) {
 			$link = admin_url( 'post.php?post=' . $post->ID . '&action=edit' );
 		}

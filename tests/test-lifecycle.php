@@ -1,4 +1,5 @@
 <?php
+if ( ! defined( 'ABSPATH' ) && 'cli' !== PHP_SAPI ) { exit; }
 /**
  * Deactivation behavior: every restriction is a runtime hook, so removing the
  * plugin's hooks restores core behavior and leaves staged copies as plain drafts.

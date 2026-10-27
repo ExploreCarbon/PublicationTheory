@@ -1,4 +1,5 @@
 <?php
+if ( ! defined( 'ABSPATH' ) && 'cli' !== PHP_SAPI ) { exit; }
 /**
  * PHPUnit bootstrap. Uses dedicated DB `spw_test` (never the site's `local` DB).
  */
