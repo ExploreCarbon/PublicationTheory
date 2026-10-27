@@ -125,4 +125,40 @@ class SPW_Mailer_Test extends WP_UnitTestCase {
 		$this->assertCount( 500, $entries );
 		$this->assertSame( 504, $entries[0]['post_id'] );
 	}
+
+	public function test_throwing_mail_hook_leaves_no_stale_context() {
+		$thrower = static function () {
+			throw new RuntimeException( 'boom' );
+		};
+		add_filter( 'pre_wp_mail', $thrower );
+		try {
+			SPW\Mailer::notify( 'submitted', $this->post_id, $this->author );
+			$this->fail( 'Expected exception' );
+		} catch ( RuntimeException $e ) {
+			$this->assertSame( 'boom', $e->getMessage() );
+		}
+		remove_filter( 'pre_wp_mail', $thrower );
+		do_action( 'wp_mail_failed', new WP_Error( 'x', 'unrelated' ) );
+		$this->assertSame( array(), SPW\Log::entries() );
+	}
+
+	public function test_deleted_author_logs_no_recipients() {
+		wp_update_post( array( 'ID' => $this->post_id, 'post_author' => 0 ) );
+		SPW\Mailer::notify( 'published', $this->post_id, $this->editor1 );
+		$entries = SPW\Log::entries();
+		$this->assertCount( 1, $entries );
+		$this->assertSame( 'no_recipients', $entries[0]['status'] );
+		$this->assertSame( 'no resolvable recipients', $entries[0]['detail'] );
+		$this->assertCount( 0, tests_retrieve_phpmailer_instance()->mock_sent );
+	}
+
+	public function test_title_entities_decoded() {
+		wp_update_post( array( 'ID' => $this->post_id, 'post_title' => "Tom's & Jerry" ) );
+		SPW\Mailer::notify( 'submitted', $this->post_id, $this->author );
+		$m = tests_retrieve_phpmailer_instance()->mock_sent[0];
+		$this->assertStringContainsString( "Tom\u{2019}s & Jerry", $m['body'] );
+		$this->assertStringContainsString( "Tom\u{2019}s & Jerry", $m['subject'] );
+		$this->assertStringNotContainsString( '&#', $m['body'] );
+		$this->assertStringNotContainsString( '&amp;', $m['subject'] );
+	}
 }

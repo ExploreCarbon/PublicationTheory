@@ -45,8 +45,19 @@ final class Mailer {
 		 */
 		$recipients = array_values( array_unique( array_map( 'intval', (array) apply_filters( 'spw_email_recipients', $recipients, $event, $post_id ) ) ) );
 
-		if ( ! $recipients ) {
-			Log::record( $post_id, $event, 'no_recipients' );
+		$users = array();
+		foreach ( $recipients as $user_id ) {
+			if ( $user_id <= 0 ) {
+				continue;
+			}
+			$user = get_userdata( $user_id );
+			if ( $user && '' !== (string) $user->user_email ) {
+				$users[] = $user;
+			}
+		}
+
+		if ( ! $users ) {
+			Log::record( $post_id, $event, 'no_recipients', $recipients ? 'no resolvable recipients' : '' );
 			return;
 		}
 
@@ -62,19 +73,19 @@ final class Mailer {
 		$subject = (string) ( $message['subject'] ?? '' );
 		$body    = (string) ( $message['body'] ?? '' );
 
-		foreach ( $recipients as $user_id ) {
-			$user = get_userdata( $user_id );
-			if ( ! $user ) {
-				continue;
-			}
+		foreach ( $users as $user ) {
+			$previous      = self::$context;
 			self::$context = array(
 				'post_id' => $post_id,
 				'event'   => $event,
 				'failed'  => false,
 			);
-			$ok            = wp_mail( $user->user_email, $subject, $body );
-			$failed        = self::$context['failed'];
-			self::$context = null;
+			try {
+				$ok     = wp_mail( $user->user_email, $subject, $body );
+				$failed = self::$context['failed'];
+			} finally {
+				self::$context = $previous;
+			}
 			if ( $ok ) {
 				Log::record( $post_id, $event, 'sent', $user->user_email );
 			} elseif ( ! $failed ) {
@@ -129,7 +140,7 @@ final class Mailer {
 			'staged_approved'  => __( 'Update approved', 'spw' ),
 		);
 		$label = $labels[ $event ] ?? $event;
-		$title = wp_strip_all_tags( get_the_title( $post ) );
+		$title = html_entity_decode( wp_strip_all_tags( get_the_title( $post ) ), ENT_QUOTES, 'UTF-8' );
 		$actor = get_userdata( $actor_id );
 		$name  = $actor ? $actor->display_name : __( 'Someone', 'spw' );
 		$site  = wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES );
