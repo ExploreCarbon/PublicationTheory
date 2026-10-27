@@ -27,6 +27,8 @@ final class Admin_Post {
 			'spw_empty_note'  => __( 'Feedback note cannot be empty.', 'spw' ),
 			'spw_not_found'   => __( 'Item not found.', 'spw' ),
 			'spw_not_covered' => __( 'This content type is not covered by the workflow.', 'spw' ),
+			'spw_not_staged'  => __( 'This is not a staged edit.', 'spw' ),
+			'spw_live_missing' => __( 'The live item no longer exists.', 'spw' ),
 			'spw_failed'      => __( 'Could not send this back.', 'spw' ),
 		);
 	}

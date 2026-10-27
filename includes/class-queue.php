@@ -93,8 +93,12 @@ final class Queue {
 	/**
 	 * Result notice from admin-post redirect. Message text comes only from an allowlist.
 	 */
-	private static function render_notice(): void {
+	public static function render_notice(): void {
 		$notice = isset( $_GET['spw_notice'] ) ? sanitize_key( wp_unslash( $_GET['spw_notice'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification
+		if ( 'approved' === $notice ) {
+			echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Staged changes approved and merged into the live item.', 'spw' ) . '</p></div>';
+			return;
+		}
 		if ( 'sent' === $notice ) {
 			echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Sent back to the author.', 'spw' ) . '</p></div>';
 			return;

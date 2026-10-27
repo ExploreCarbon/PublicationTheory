@@ -21,5 +21,6 @@ final class Plugin {
 		Admin_Post::register();
 		Editor_Assets::register();
 		Staging::register();
+		Staging_Review::register();
 	}
 }

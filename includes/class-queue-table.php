@@ -61,6 +61,7 @@ final class Queue_Table extends \WP_List_Table {
 				'paged'          => $paged,
 				'orderby'        => $orderby,
 				'order'          => $order,
+				'spw_include_staged' => true,
 			)
 		);
 		$this->items = $query->posts;
@@ -79,7 +80,7 @@ final class Queue_Table extends \WP_List_Table {
 	protected function column_title( $item ) {
 		$title = get_the_title( $item );
 		$title = '' !== $title ? $title : __( '(no title)', 'spw' );
-		$link  = get_edit_post_link( $item, 'raw' );
+		$link  = Staging::is_staged( (int) $item->ID ) ? Staging::review_url( (int) $item->ID ) : get_edit_post_link( $item, 'raw' );
 		if ( ! $link ) {
 			return '<strong>' . esc_html( $title ) . '</strong>';
 		}
@@ -94,7 +95,7 @@ final class Queue_Table extends \WP_List_Table {
 		);
 		$object = get_post_type_object( $item->post_type );
 		if ( $object && current_user_can( $object->cap->edit_others_posts ) ) {
-			$actions['send_back'] = $this->send_back_form( $item, $title );
+			$actions['send_back'] = self::send_back_form( $item, $title );
 		}
 		return '<strong><a class="row-title" href="' . esc_url( $link ) . '">' . esc_html( $title ) . '</a></strong>' . $this->row_actions( $actions );
 	}
@@ -102,7 +103,7 @@ final class Queue_Table extends \WP_List_Table {
 	/**
 	 * Inline no-JS send-back form (details/summary).
 	 */
-	private function send_back_form( \WP_Post $item, string $title ): string {
+	public static function send_back_form( \WP_Post $item, string $title ): string {
 		$id       = (int) $item->ID;
 		$field_id = 'spw-note-' . $id;
 		ob_start();
