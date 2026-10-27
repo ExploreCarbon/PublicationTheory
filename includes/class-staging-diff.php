@@ -57,13 +57,27 @@ final class Staging_Diff {
 		}
 
 		$changed = $plan['live_changed'];
-		if ( $changed['meta'] || $changed['terms'] ) {
+		$changed['fields'] = $changed['fields'] ?? array();
+		if ( $changed['fields'] || $changed['meta'] || $changed['terms'] ) {
 			$names = array();
 			foreach ( $changed['terms'] as $taxonomy ) {
 				$tax     = get_taxonomy( $taxonomy );
 				$names[] = $tax ? $tax->labels->name : $taxonomy;
 			}
 			$out .= '<div class="notice notice-warning inline"><p>' . esc_html__( 'The live item changed after this copy was opened. Changes made only on the live item are kept; where both changed, the proposed version wins.', 'spw' ) . '</p>';
+			if ( $changed['fields'] ) {
+				$labels = array(
+					'post_title'   => __( 'Title', 'spw' ),
+					'post_content' => __( 'Content', 'spw' ),
+					'post_excerpt' => __( 'Excerpt', 'spw' ),
+				);
+				$fields = array();
+				foreach ( $changed['fields'] as $field ) {
+					$fields[] = $labels[ $field ] ?? $field;
+				}
+				/* translators: %s: comma-separated field names */
+				$out .= '<p>' . esc_html( sprintf( __( 'Live changed since this copy was opened: %s (the proposed version will replace them).', 'spw' ), implode( ', ', $fields ) ) ) . '</p>';
+			}
 			if ( $changed['meta'] ) {
 				/* translators: %s: comma-separated meta keys */
 				$out .= '<p>' . esc_html( sprintf( __( 'Fields changed on live: %s', 'spw' ), implode( ', ', $changed['meta'] ) ) ) . '</p>';

@@ -1,4 +1,5 @@
 <?php
+if ( ! defined( 'ABSPATH' ) && 'cli' !== PHP_SAPI ) { exit; }
 class SPW_Staging_Test extends WP_UnitTestCase {
 
 	private $author;
@@ -172,14 +173,19 @@ class SPW_Staging_Test extends WP_UnitTestCase {
 		$this->assertGreaterThan( 0, $copy );
 		$this->assertStringContainsString( 'post.php?post=' . $copy . '&action=edit', $location );
 
-		// Direct visit to the live edit screen goes to the existing copy.
+		// Direct visit to the live edit screen: interstitial with continue link and discard form.
 		$_GET     = array(
 			'post'   => (string) $live,
 			'action' => 'edit',
 		);
 		$_REQUEST = $_GET;
-		$location = $this->redirect_of( array( 'SPW\Staging', 'on_load_post' ) );
-		$this->assertStringContainsString( 'post.php?post=' . $copy . '&action=edit', $location );
+		try {
+			SPW\Staging::on_load_post();
+			$this->fail( 'expected interstitial' );
+		} catch ( WPDieException $e ) {
+			$this->assertStringContainsString( 'post.php?post=' . $copy . '&#038;action=edit', $e->getMessage() );
+			$this->assertStringContainsString( 'value="spw_discard_staged"', $e->getMessage() );
+		}
 	}
 
 	public function test_direct_visit_without_copy_shows_nonce_link_not_side_effect() {
@@ -761,6 +767,184 @@ class SPW_Staging_Test extends WP_UnitTestCase {
 		remove_all_filters( 'spw_allowed_live_meta_keys' );
 		$this->assertSame( '6', get_post_meta( $live, 'view_count', true ) );
 		$this->assertSame( array( 'x' => 1 ), get_post_meta( $live, '_spw_feedback', true ) );
+	}
+
+	// ---- final review wave ----
+
+	public function test_draft_copy_visible_to_editor_and_discardable() {
+		$live = $this->live();
+		$copy = $this->copy_for( $live );
+		wp_set_current_user( $this->editor );
+		$html = SPW\Staging::notice_html( $live );
+		$this->assertStringContainsString( 'in draft', $html );
+		$this->assertStringContainsString( 'copy=' . $copy, $html );
+		$this->assertStringContainsString( 'spw_discard_staged', $html );
+
+		$_GET = array( 'copy' => (string) $copy );
+		ob_start();
+		SPW\Staging_Review::render();
+		$review = ob_get_clean();
+		$this->assertStringNotContainsString( 'value="spw_approve_staged"', $review );
+		$this->assertStringContainsString( 'value="spw_discard_staged"', $review );
+
+		$_POST    = array(
+			'post_id'  => (string) $copy,
+			'_wpnonce' => wp_create_nonce( 'spw_discard_staged_' . $copy ),
+		);
+		$_REQUEST = $_POST;
+		$location = $this->redirect_of( array( 'SPW\Staging_Review', 'handle_discard' ) );
+		$this->assertStringContainsString( 'spw_notice=discarded', $location );
+		$this->assertNull( get_post( $copy ) );
+		$this->assertSame( 'Live title', get_post( $live )->post_title );
+		// Another author can now open a copy.
+		$this->assertSame( 0, SPW\Staging::find_copy( $live ) );
+	}
+
+	public function test_discard_permissions_and_nonce() {
+		$live = $this->live();
+		$copy = $this->copy_for( $live );
+		$this->trap();
+		// Bad nonce.
+		wp_set_current_user( $this->author );
+		$_POST    = array(
+			'post_id'  => (string) $copy,
+			'_wpnonce' => 'bad',
+		);
+		$_REQUEST = $_POST;
+		try {
+			SPW\Staging_Review::handle_discard();
+			$this->fail( 'expected die' );
+		} catch ( WPDieException $e ) {
+			$this->assertNotNull( get_post( $copy ) );
+		}
+		// Other author.
+		wp_set_current_user( $this->author_b );
+		$this->assertSame( 'spw_forbidden', SPW\Staging::discard( $copy )->get_error_code() );
+		$this->assertNotNull( get_post( $copy ) );
+		$this->assertWPError( SPW\Staging::discard( $live ) );
+		// Own author.
+		wp_set_current_user( $this->author );
+		$this->assertSame( $live, SPW\Staging::discard( $copy ) );
+		$this->assertNull( get_post( $copy ) );
+	}
+
+	public function test_locked_copy_names_holder() {
+		$live = self::factory()->post->create( array( 'post_author' => $this->author, 'post_status' => 'publish' ) );
+		wp_update_user( array( 'ID' => $this->author_b, 'display_name' => 'Bob <b>B</b>' ) );
+		$copy = self::factory()->post->create( array( 'post_author' => $this->author_b, 'post_status' => 'draft' ) );
+		add_post_meta( $copy, '_spw_staged_for', (string) $live );
+		$res = SPW\Staging::open_for( $live, $this->author );
+		$this->assertSame( 'spw_copy_locked', $res->get_error_code() );
+		$this->assertStringContainsString( 'already being edited by Bob', $res->get_error_message() );
+		wp_set_current_user( $this->author );
+		$_GET     = array(
+			'post'   => (string) $live,
+			'action' => 'edit',
+		);
+		$_REQUEST = $_GET;
+		$this->trap();
+		try {
+			SPW\Staging::on_load_post();
+			$this->fail( 'expected lock page' );
+		} catch ( WPDieException $e ) {
+			$this->assertStringContainsString( 'ask an Editor to discard that copy', $e->getMessage() );
+			$this->assertStringNotContainsString( '<b>B</b>', $e->getMessage() );
+		}
+	}
+
+	public function test_live_field_change_warned_and_revision_kept() {
+		$live = $this->live();
+		$copy = $this->copy_for( $live );
+		wp_set_current_user( $this->author );
+		wp_update_post( array( 'ID' => $copy, 'post_content' => 'Author version' ) );
+		SPW\Workflow::submit( $copy );
+		wp_set_current_user( $this->editor );
+		wp_update_post( array( 'ID' => $live, 'post_content' => 'Editor hotfix' ) );
+		$html = SPW\Staging_Diff::render( $copy );
+		$this->assertStringContainsString( 'Live changed since this copy was opened: Content', $html );
+		$this->assertSame( $live, SPW\Staging::approve( $copy ) );
+		$this->assertSame( 'Author version', get_post( $live )->post_content );
+		$this->assertContains( 'Editor hotfix', wp_list_pluck( wp_get_post_revisions( $live ), 'post_content' ) );
+	}
+
+	public function test_base_without_field_hashes_does_not_error() {
+		$live = $this->live();
+		$copy = $this->copy_for( $live );
+		$base = get_post_meta( $copy, '_spw_base', true );
+		unset( $base['fields'] );
+		update_post_meta( $copy, '_spw_base', $base );
+		wp_update_post( array( 'ID' => $live, 'post_content' => 'Changed' ) );
+		$plan = SPW\Staging::plan( $copy );
+		$this->assertSame( array(), $plan['live_changed']['fields'] );
+		$this->assertIsString( SPW\Staging_Diff::render( $copy ) );
+	}
+
+	public function test_feedback_moves_to_live_on_approve_idempotent() {
+		$live = $this->live();
+		$copy = $this->copy_for( $live );
+		wp_set_current_user( $this->author );
+		SPW\Workflow::submit( $copy );
+		wp_set_current_user( $this->editor );
+		SPW\Workflow::send_back( $copy, 'Tone it down' );
+		wp_set_current_user( $this->author );
+		SPW\Workflow::submit( $copy );
+		$entry = SPW\Feedback::latest( $copy );
+		// Simulate a retry where the entry already reached live.
+		add_post_meta( $live, SPW\Feedback::META_KEY, wp_slash( $entry ) );
+		wp_set_current_user( $this->editor );
+		$this->assertSame( $live, SPW\Staging::approve( $copy ) );
+		$count = 0;
+		foreach ( SPW\Feedback::history( $live ) as $row ) {
+			$count += ( $row['note'] ?? '' ) === 'Tone it down' ? 1 : 0;
+		}
+		$this->assertSame( 1, $count );
+	}
+
+	public function test_feedback_moved_on_approve() {
+		$live = $this->live();
+		$copy = $this->copy_for( $live );
+		wp_set_current_user( $this->author );
+		SPW\Workflow::submit( $copy );
+		wp_set_current_user( $this->editor );
+		SPW\Workflow::send_back( $copy, 'Fix intro' );
+		wp_set_current_user( $this->author );
+		SPW\Workflow::submit( $copy );
+		wp_set_current_user( $this->editor );
+		SPW\Staging::approve( $copy );
+		$this->assertSame( 'Fix intro', SPW\Feedback::latest( $live )['note'] );
+	}
+
+	public function test_rest_publish_copy_returns_409_and_non_rest_reverts_with_notice() {
+		$live = $this->live();
+		$copy = $this->copy_for( $live );
+		wp_update_post( array( 'ID' => $copy, 'post_status' => 'pending' ) );
+		wp_set_current_user( $this->editor );
+		$req = new WP_REST_Request( 'PUT', '/wp/v2/posts/' . $copy );
+		$req->set_param( 'status', 'publish' );
+		$res = rest_do_request( $req );
+		$this->assertSame( 409, $res->get_status() );
+		$this->assertSame( 'spw_use_review_screen', $res->get_data()['code'] );
+		$this->assertSame( 'pending', get_post_status( $copy ) );
+
+		wp_update_post( array( 'ID' => $copy, 'post_status' => 'publish' ) );
+		$this->assertSame( 'pending', get_post_status( $copy ) );
+		ob_start();
+		SPW\Staging::blocked_publish_notice();
+		$this->assertStringContainsString( 'Use Approve on the review screen', ob_get_clean() );
+
+		$html = SPW\Staging::notice_html( $copy );
+		$this->assertStringContainsString( 'Proposed version', $html );
+		$this->assertStringContainsString( 'copy=' . $copy, $html );
+	}
+
+	public function test_staged_submit_mail_links_review_screen() {
+		$live = $this->live();
+		$copy = $this->copy_for( $live );
+		wp_set_current_user( $this->author );
+		reset_phpmailer_instance();
+		SPW\Workflow::submit( $copy );
+		$body = tests_retrieve_phpmailer_instance()->mock_sent[0]['body'];
+		$this->assertStringContainsString( 'page=spw-staged-review&copy=' . $copy, $body );
 	}
 
 	public function test_copy_post_type_pinned() {

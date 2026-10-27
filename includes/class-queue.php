@@ -99,6 +99,10 @@ final class Queue {
 			echo '<div class="notice notice-success is-dismissible" role="status"><p>' . esc_html__( 'Staged changes approved and merged into the live item.', 'spw' ) . '</p></div>';
 			return;
 		}
+		if ( 'discarded' === $notice ) {
+			echo '<div class="notice notice-success is-dismissible" role="status"><p>' . esc_html__( 'Staged copy discarded. The live item is unchanged.', 'spw' ) . '</p></div>';
+			return;
+		}
 		if ( 'sent' === $notice ) {
 			echo '<div class="notice notice-success is-dismissible" role="status"><p>' . esc_html__( 'Sent back to the author.', 'spw' ) . '</p></div>';
 			return;

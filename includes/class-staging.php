@@ -17,6 +17,7 @@ final class Staging {
 
 	private const LIVE_STATUSES = array( 'publish', 'future' );
 	private const OPEN_STATUSES = array( 'draft', 'pending' );
+	public const FIELDS = array( 'post_title', 'post_content', 'post_excerpt' );
 	private const ALL_STATUSES  = array( 'draft', 'pending', 'trash', 'auto-draft', 'publish', 'future', 'private' );
 
 	/**
@@ -57,6 +58,7 @@ final class Staging {
 		add_action( 'pre_get_posts', array( __CLASS__, 'hide_copies' ) );
 		add_filter( 'wp_sitemaps_posts_query_args', array( __CLASS__, 'hide_in_args' ) );
 		add_action( 'rest_api_init', array( __CLASS__, 'register_rest_filters' ) );
+		add_action( 'init', array( __CLASS__, 'register_insert_filters' ), 100 );
 
 		add_filter( 'post_row_actions', array( __CLASS__, 'row_actions' ), 10, 2 );
 		add_filter( 'page_row_actions', array( __CLASS__, 'row_actions' ), 10, 2 );
@@ -164,7 +166,7 @@ final class Staging {
 		$existing = self::find_copy( $live_id );
 		if ( $existing ) {
 			if ( (int) get_post_field( 'post_author', $existing ) !== $author_id ) {
-				return new \WP_Error( 'spw_copy_locked', __( 'Another user already has changes pending for this item.', 'spw' ), array( 'status' => 409 ) );
+				return new \WP_Error( 'spw_copy_locked', self::locked_message( $existing ), array( 'status' => 409 ) );
 			}
 			return $existing;
 		}
@@ -270,10 +272,106 @@ final class Staging {
 		if ( is_wp_error( $moved ) ) {
 			return $moved;
 		}
+		$moved = self::move_feedback( $copy_id, $live_id );
+		if ( is_wp_error( $moved ) ) {
+			return $moved;
+		}
 		wp_delete_post( $copy_id, true );
 
 		Mailer::notify( 'staged_approved', $live_id, $actor, $author_id );
 		return $live_id;
+	}
+
+	/**
+	 * Copy feedback history entries from a copy to the live post (idempotent by entry id).
+	 *
+	 * @return true|\WP_Error
+	 */
+	private static function move_feedback( int $copy_id, int $live_id ) {
+		$existing = array();
+		foreach ( (array) get_post_meta( $live_id, Feedback::META_KEY ) as $entry ) {
+			if ( is_array( $entry ) && isset( $entry['id'] ) ) {
+				$existing[ (string) $entry['id'] ] = true;
+			}
+		}
+		$previous       = self::$internal;
+		self::$internal = true;
+		try {
+			foreach ( (array) get_post_meta( $copy_id, Feedback::META_KEY ) as $entry ) {
+				if ( ! is_array( $entry ) || ( isset( $entry['id'] ) && isset( $existing[ (string) $entry['id'] ] ) ) ) {
+					continue;
+				}
+				if ( ! add_post_meta( $live_id, Feedback::META_KEY, wp_slash( $entry ) ) ) {
+					return new \WP_Error( 'spw_feedback_move_failed', __( 'Feedback could not be moved to the live item. Nothing was deleted; try approving again.', 'spw' ), array( 'status' => 500 ) );
+				}
+			}
+		} finally {
+			self::$internal = $previous;
+		}
+		return true;
+	}
+
+	/**
+	 * Discard a staged copy (and its notes, which are deleted with it).
+	 * Allowed for the type's edit_others_posts and for the copy's own author.
+	 *
+	 * @return int|\WP_Error Live ID.
+	 */
+	public static function discard( int $copy_id ) {
+		$copy    = get_post( $copy_id );
+		$live_id = $copy ? self::live_id( $copy_id ) : null;
+		if ( ! $copy || ! $live_id ) {
+			return new \WP_Error( 'spw_not_staged', __( 'This is not a staged edit.', 'spw' ), array( 'status' => 400 ) );
+		}
+		$user   = get_current_user_id();
+		$object = get_post_type_object( $copy->post_type );
+		$editor = $object && current_user_can( $object->cap->edit_others_posts );
+		if ( $user <= 0 || ( ! $editor && (int) $copy->post_author !== $user ) ) {
+			return new \WP_Error( 'spw_forbidden', __( 'You cannot discard this.', 'spw' ), array( 'status' => 403 ) );
+		}
+		if ( ! wp_delete_post( $copy_id, true ) ) {
+			return new \WP_Error( 'spw_failed', __( 'Could not discard this.', 'spw' ), array( 'status' => 500 ) );
+		}
+		return (int) $live_id;
+	}
+
+	/**
+	 * Discard form markup (POST, nonce'd).
+	 */
+	public static function discard_form( int $copy_id ): string {
+		$confirm = __( 'Discard the proposed version? It and its notes are deleted permanently; the live item is unchanged.', 'spw' );
+		return '<form method="post" class="spw-discard" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" onsubmit="return window.confirm(' . esc_attr( wp_json_encode( $confirm ) ) . ');">'
+			. '<input type="hidden" name="action" value="spw_discard_staged" />'
+			. '<input type="hidden" name="post_id" value="' . esc_attr( (string) $copy_id ) . '" />'
+			. wp_nonce_field( 'spw_discard_staged_' . $copy_id, '_wpnonce', true, false )
+			. '<p>' . esc_html__( 'Discarding deletes the proposed version and its notes permanently. The live item is not changed.', 'spw' ) . '</p>'
+			. '<p><button type="submit" class="button">' . esc_html__( 'Discard staged copy', 'spw' ) . '</button></p></form>';
+	}
+
+	/**
+	 * Lock message naming the copy's holder.
+	 */
+	public static function locked_message( int $copy_id ): string {
+		$holder = get_userdata( (int) get_post_field( 'post_author', $copy_id ) );
+		/* translators: %s: user display name */
+		return sprintf( __( 'This item is already being edited by %s; ask an Editor to discard that copy.', 'spw' ), $holder ? $holder->display_name : __( 'another user', 'spw' ) );
+	}
+
+	/**
+	 * REST: refuse to publish a staged copy with a visible error (silent revert would confuse the editor).
+	 *
+	 * @param \stdClass|\WP_Error $prepared Prepared post.
+	 * @param \WP_REST_Request    $request  Request.
+	 */
+	public static function rest_pre_insert( $prepared, $request ) {
+		if ( is_wp_error( $prepared ) || ! is_object( $prepared ) || empty( $prepared->ID ) ) {
+			return $prepared;
+		}
+		$status = isset( $request['status'] ) ? (string) $request['status'] : (string) ( $prepared->post_status ?? '' );
+		if ( self::is_staged( (int) $prepared->ID ) && in_array( $status, array( 'publish', 'future', 'private' ), true ) ) {
+			return new \WP_Error( 'spw_use_review_screen', __( 'This is a proposed version. Use Approve on the review screen.', 'spw' ), array( 'status' => 409 ) );
+		}
+		return $prepared;
 	}
 
 	/**
@@ -391,8 +489,14 @@ final class Staging {
 		foreach ( self::meta_map( $live_id ) as $key => $values ) {
 			$meta[ $key ] = self::hash( $values );
 		}
+		$live   = get_post( $live_id );
+		$fields = array();
+		foreach ( self::FIELDS as $field ) {
+			$fields[ $field ] = md5( (string) ( $live ? $live->$field : '' ) );
+		}
 		return array(
-			'meta'  => $meta,
+			'fields' => $fields,
+			'meta'   => $meta,
 			'terms' => self::term_map( $live_id ),
 		);
 	}
@@ -419,10 +523,19 @@ final class Staging {
 			'meta'         => array(),
 			'terms'        => array(),
 			'live_changed' => array(
-				'meta'  => array(),
+				'fields' => array(),
+				'meta'   => array(),
 				'terms' => array(),
 			),
 		);
+
+		// Title/content/excerpt: the copy always wins; only report live edits made since the copy was opened.
+		$live_post = get_post( $live_id );
+		foreach ( self::FIELDS as $field ) {
+			if ( isset( $base['fields'][ $field ] ) && $live_post && md5( (string) $live_post->$field ) !== (string) $base['fields'][ $field ] ) {
+				$plan['live_changed']['fields'][] = $field;
+			}
+		}
 
 		$keys = array_unique( array_merge( array_keys( $base_meta ), array_keys( $copy_meta ), array_keys( $live_meta ) ) );
 		foreach ( $keys as $key ) {
@@ -797,6 +910,15 @@ final class Staging {
 	/**
 	 * Register rest_{type}_query filters for covered types.
 	 */
+	public static function register_insert_filters(): void {
+		foreach ( Types::covered() as $type ) {
+			add_filter( "rest_pre_insert_{$type}", array( __CLASS__, 'rest_pre_insert' ), 10, 2 );
+		}
+	}
+
+	/**
+	 * Register rest_{type}_query filters for covered types.
+	 */
 	public static function register_rest_filters(): void {
 		foreach ( Types::covered() as $type ) {
 			add_filter( "rest_{$type}_query", array( __CLASS__, 'hide_in_args' ) );
@@ -883,10 +1005,17 @@ final class Staging {
 		if ( $post_id <= 0 || 'edit' !== $action || ! self::routes_to_copy( $post_id ) ) {
 			return;
 		}
-		$copy = self::find_copy( $post_id );
-		if ( $copy && (int) get_post_field( 'post_author', $copy ) === get_current_user_id() ) {
-			wp_safe_redirect( admin_url( 'post.php?post=' . $copy . '&action=edit' ) );
-			exit;
+		$copy  = self::find_copy( $post_id );
+		$title = esc_html__( 'Edit live content', 'spw' );
+		if ( $copy && (int) get_post_field( 'post_author', $copy ) !== get_current_user_id() ) {
+			wp_die( '<h1>' . $title . '</h1><p>' . esc_html( self::locked_message( $copy ) ) . '</p>', $title, array( 'response' => 409 ) ); // phpcs:ignore WordPress.Security.EscapeOutput -- escaped parts.
+		}
+		if ( $copy ) {
+			$state   = 'pending' === get_post_status( $copy ) ? __( 'Your proposed changes are waiting for review.', 'spw' ) : __( 'You have a proposed version of this item in progress.', 'spw' );
+			$message = '<h1>' . $title . '</h1><p>' . esc_html( $state ) . '</p>'
+				. '<p><a class="button button-primary" href="' . esc_url( admin_url( 'post.php?post=' . $copy . '&action=edit' ) ) . '">' . esc_html__( 'Continue editing your copy', 'spw' ) . '</a></p>'
+				. self::discard_form( $copy );
+			wp_die( $message, $title, array( 'response' => 200 ) ); // phpcs:ignore WordPress.Security.EscapeOutput -- escaped parts.
 		}
 		$message = '<h1>' . esc_html__( 'Edit live content', 'spw' ) . '</h1><p>' . esc_html__( 'This item is live. Your changes will be saved as a copy and sent to an editor for review.', 'spw' ) . '</p>'
 			. '<p><a class="button button-primary" href="' . esc_url( self::open_url( $post_id ) ) . '">' . esc_html__( 'Edit a copy for review', 'spw' ) . '</a></p>';
@@ -901,7 +1030,8 @@ final class Staging {
 		check_admin_referer( 'spw_open_staged_' . $post_id );
 		$copy = self::open_for( $post_id, get_current_user_id() );
 		if ( is_wp_error( $copy ) ) {
-			wp_die( esc_html( $copy->get_error_message() ), '', array( 'response' => 403 ) );
+			$data = $copy->get_error_data();
+			wp_die( esc_html( $copy->get_error_message() ), '', array( 'response' => (int) ( $data['status'] ?? 403 ) ) );
 		}
 		wp_safe_redirect( admin_url( 'post.php?post=' . (int) $copy . '&action=edit' ) );
 		exit;
@@ -969,23 +1099,73 @@ final class Staging {
 	}
 
 	/**
-	 * Notice markup for Editors on a live post with pending changes ('' otherwise).
+	 * Notice for the edit screen of a live post (Editors, any open copy) or of a copy (publishers).
+	 *
+	 * @return array{message:string,label:string,url:string,copy:int}|null
 	 */
-	public static function notice_html( int $live_id ): string {
-		$post = get_post( $live_id );
-		if ( ! $post || ! self::is_live( $post ) ) {
-			return '';
+	public static function notice_data( int $post_id ): ?array {
+		$post = get_post( $post_id );
+		if ( ! $post ) {
+			return null;
 		}
 		$object = get_post_type_object( $post->post_type );
 		if ( ! $object || ! current_user_can( $object->cap->edit_others_posts ) ) {
-			return '';
+			return null;
 		}
-		$copy = self::find_copy( $live_id, array( 'pending' ) );
+		if ( self::is_staged( $post_id ) ) {
+			return array(
+				'message' => __( 'Proposed version — approve it on the review screen.', 'spw' ),
+				'label'   => __( 'Open review screen', 'spw' ),
+				'url'     => self::review_url( $post_id ),
+				'copy'    => $post_id,
+			);
+		}
+		if ( ! self::is_live( $post ) ) {
+			return null;
+		}
+		$copy = self::find_copy( $post_id );
 		if ( ! $copy ) {
+			return null;
+		}
+		$holder = get_userdata( (int) get_post_field( 'post_author', $copy ) );
+		$name   = $holder ? $holder->display_name : __( 'another user', 'spw' );
+		return array(
+			'message' => 'pending' === get_post_status( $copy )
+				? __( 'Changes pending review.', 'spw' )
+				/* translators: %s: user display name */
+				: sprintf( __( 'Staged changes by %s are in draft (returned or not yet submitted).', 'spw' ), $name ),
+			'label'   => __( 'Review staged changes', 'spw' ),
+			'url'     => self::review_url( $copy ),
+			'copy'    => $copy,
+		);
+	}
+
+	/**
+	 * Notice markup ('' when there is nothing to say).
+	 */
+	public static function notice_html( int $post_id ): string {
+		$data = self::notice_data( $post_id );
+		if ( ! $data ) {
 			return '';
 		}
-		return '<div class="notice notice-warning"><p>' . esc_html__( 'Changes pending review.', 'spw' )
-			. ' <a href="' . esc_url( self::review_url( $copy ) ) . '">' . esc_html__( 'Review staged changes', 'spw' ) . '</a></p></div>';
+		$html = '<div class="notice notice-warning"><p>' . esc_html( $data['message'] )
+			. ' <a href="' . esc_url( $data['url'] ) . '">' . esc_html( $data['label'] ) . '</a></p>';
+		if ( ! self::is_staged( $post_id ) ) {
+			$html .= self::discard_form( $data['copy'] );
+		}
+		return $html . '</div>';
+	}
+
+	/**
+	 * Notice after a non-REST attempt to publish a copy was reverted to pending.
+	 */
+	public static function blocked_publish_notice(): void {
+		$user = get_current_user_id();
+		if ( $user <= 0 || ! get_transient( 'spw_copy_publish_blocked_' . $user ) ) {
+			return;
+		}
+		delete_transient( 'spw_copy_publish_blocked_' . $user );
+		echo '<div class="notice notice-error" role="alert"><p>' . esc_html__( 'This is a proposed version. Use Approve on the review screen.', 'spw' ) . '</p></div>';
 	}
 
 	/**
@@ -997,6 +1177,7 @@ final class Staging {
 			return;
 		}
 		$post_id = isset( $_GET['post'] ) ? absint( wp_unslash( $_GET['post'] ) ) : 0; // phpcs:ignore WordPress.Security.NonceVerification
+		self::blocked_publish_notice();
 		echo self::notice_html( $post_id ); // phpcs:ignore WordPress.Security.EscapeOutput -- escaped in notice_html().
 	}
 
@@ -1005,14 +1186,14 @@ final class Staging {
 	 */
 	public static function editor_notice(): void {
 		$post_id = isset( $_GET['post'] ) ? absint( wp_unslash( $_GET['post'] ) ) : 0; // phpcs:ignore WordPress.Security.NonceVerification
-		if ( '' === self::notice_html( $post_id ) ) {
+		$data = self::notice_data( $post_id );
+		if ( ! $data ) {
 			return;
 		}
-		$copy   = self::find_copy( $post_id, array( 'pending' ) );
 		$config = array(
-			'message' => __( 'Changes pending review.', 'spw' ),
-			'label'   => __( 'Review staged changes', 'spw' ),
-			'url'     => self::review_url( $copy ),
+			'message' => $data['message'],
+			'label'   => $data['label'],
+			'url'     => $data['url'],
 		);
 		wp_add_inline_script(
 			'wp-edit-post',

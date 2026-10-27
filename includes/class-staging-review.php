@@ -16,6 +16,7 @@ final class Staging_Review {
 	public static function register(): void {
 		add_action( 'admin_menu', array( __CLASS__, 'add_page' ) );
 		add_action( 'admin_post_spw_approve_staged', array( __CLASS__, 'handle_approve' ) );
+		add_action( 'admin_post_spw_discard_staged', array( __CLASS__, 'handle_discard' ) );
 	}
 
 	/**
@@ -71,8 +72,40 @@ final class Staging_Review {
 			echo '<p><button type="submit" class="button button-primary">' . esc_html__( 'Approve and update live item', 'spw' ) . '</button></p>';
 			echo '</form>';
 			echo Queue_Table::send_back_form( $copy, $title ); // phpcs:ignore WordPress.Security.EscapeOutput -- escaped in send_back_form().
+		} else {
+			echo '<h2>' . esc_html__( 'Decision', 'spw' ) . '</h2>';
+			echo '<p>' . esc_html__( 'This proposed version is a draft (returned to the author or not yet submitted). It can be approved once the author submits it.', 'spw' ) . '</p>';
 		}
+		echo Staging::discard_form( $copy_id ); // phpcs:ignore WordPress.Security.EscapeOutput -- escaped in discard_form().
 		echo '</div>';
+	}
+
+	/**
+	 * admin-post: discard a staged copy. Editors return to the queue; the copy's author to the live item's list.
+	 */
+	public static function handle_discard(): void {
+		$post_id = isset( $_POST['post_id'] ) ? absint( wp_unslash( $_POST['post_id'] ) ) : 0; // phpcs:ignore WordPress.Security.NonceVerification -- verified next line.
+		check_admin_referer( 'spw_discard_staged_' . $post_id );
+
+		$type   = (string) get_post_type( $post_id );
+		$result = Staging::discard( $post_id );
+		if ( is_wp_error( $result ) ) {
+			wp_die( esc_html( $result->get_error_message() ), '', array( 'response' => 403 ) );
+		}
+		$object = get_post_type_object( $type );
+		if ( $object && current_user_can( $object->cap->edit_others_posts ) ) {
+			$url = add_query_arg(
+				array(
+					'page'       => Queue::SLUG,
+					'spw_notice' => 'discarded',
+				),
+				admin_url( 'admin.php' )
+			);
+		} else {
+			$url = add_query_arg( array( 'post_type' => $type ), admin_url( 'edit.php' ) );
+		}
+		wp_safe_redirect( $url );
+		exit;
 	}
 
 	/**
