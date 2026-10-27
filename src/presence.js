@@ -1,6 +1,5 @@
 import { dispatch, select } from '@wordpress/data';
 import { __, sprintf } from '@wordpress/i18n';
-import { speak } from '@wordpress/a11y';
 import { store as noticesStore } from '@wordpress/notices';
 import { store as editorStore } from '@wordpress/editor';
 
@@ -47,10 +46,9 @@ export function renderPresence( users ) {
 	createNotice( 'warning', message, {
 		id: NOTICE_ID,
 		isDismissible: true,
-		// Notices are announced politely by core; speak() is a fallback for older stores.
+		// Core's notices store announces the message politely (speak: true).
 		speak: true,
 	} );
-	speak( message, 'polite' );
 }
 
 /**

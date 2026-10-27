@@ -83,7 +83,7 @@ final class Queue {
 		require_once ABSPATH . 'wp-admin/includes/class-wp-list-table.php';
 		$table = new Queue_Table();
 		$table->prepare_items();
-		echo '<div class="wrap"><h1>' . esc_html__( 'Review Queue', 'spw' ) . '</h1>';
+		echo '<div class="wrap"><h1 class="wp-heading-inline">' . esc_html__( 'Review Queue', 'spw' ) . '</h1><hr class="wp-header-end" />';
 		echo '<style>.spw-send-back summary{cursor:pointer;display:inline-block;min-height:24px;line-height:24px}.row-actions:has(.spw-send-back[open]){position:static}</style>';
 		self::render_notice();
 		$table->display();
@@ -96,11 +96,11 @@ final class Queue {
 	public static function render_notice(): void {
 		$notice = isset( $_GET['spw_notice'] ) ? sanitize_key( wp_unslash( $_GET['spw_notice'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification
 		if ( 'approved' === $notice ) {
-			echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Staged changes approved and merged into the live item.', 'spw' ) . '</p></div>';
+			echo '<div class="notice notice-success is-dismissible" role="status"><p>' . esc_html__( 'Staged changes approved and merged into the live item.', 'spw' ) . '</p></div>';
 			return;
 		}
 		if ( 'sent' === $notice ) {
-			echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Sent back to the author.', 'spw' ) . '</p></div>';
+			echo '<div class="notice notice-success is-dismissible" role="status"><p>' . esc_html__( 'Sent back to the author.', 'spw' ) . '</p></div>';
 			return;
 		}
 		if ( 'error' !== $notice ) {

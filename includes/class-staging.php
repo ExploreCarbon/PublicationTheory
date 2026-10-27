@@ -888,7 +888,7 @@ final class Staging {
 			wp_safe_redirect( admin_url( 'post.php?post=' . $copy . '&action=edit' ) );
 			exit;
 		}
-		$message = '<p>' . esc_html__( 'This item is live. Your changes will be saved as a copy and sent to an editor for review.', 'spw' ) . '</p>'
+		$message = '<h1>' . esc_html__( 'Edit live content', 'spw' ) . '</h1><p>' . esc_html__( 'This item is live. Your changes will be saved as a copy and sent to an editor for review.', 'spw' ) . '</p>'
 			. '<p><a class="button button-primary" href="' . esc_url( self::open_url( $post_id ) ) . '">' . esc_html__( 'Edit a copy for review', 'spw' ) . '</a></p>';
 		wp_die( $message, esc_html__( 'Edit live content', 'spw' ), array( 'response' => 200 ) ); // phpcs:ignore WordPress.Security.EscapeOutput -- built from escaped parts.
 	}

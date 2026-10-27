@@ -13,8 +13,14 @@ export default function FeedbackList( { entries, headingLevel = 3 } ) {
 		);
 	}
 	return (
-		<section className="spw-feedback">
-			<Heading className="spw-feedback-heading">
+		<section
+			className="spw-feedback"
+			aria-labelledby="spw-feedback-heading"
+		>
+			<Heading
+				id="spw-feedback-heading"
+				className="spw-feedback-heading"
+			>
 				{ __( 'Feedback history', 'spw' ) }
 			</Heading>
 			<ul style={ { margin: 0, paddingLeft: '1.2em' } }>

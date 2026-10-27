@@ -3,7 +3,6 @@ import { Button, TextareaControl } from '@wordpress/components';
 import { useDispatch, useSelect, select, resolveSelect } from '@wordpress/data';
 import { useEffect, useRef, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
-import { speak } from '@wordpress/a11y';
 import { store as noticesStore } from '@wordpress/notices';
 import { store as coreStore } from '@wordpress/core-data';
 import { store as editorStore } from '@wordpress/editor';
@@ -113,7 +112,6 @@ export default function Panel( { canPublish } ) {
 				type: 'snackbar',
 				isDismissible: true,
 			} );
-			speak( successMessage, 'polite' );
 		} catch ( e ) {
 			setError(
 				e?.message || __( 'Something went wrong. Please try again.', 'spw' )
@@ -199,7 +197,9 @@ export default function Panel( { canPublish } ) {
 
 			<div style={ { marginTop: '16px' } }>
 				{ feedbackError ? (
-					<p>{ __( 'Could not load feedback.', 'spw' ) }</p>
+					<p role="alert">
+						{ __( 'Could not load feedback.', 'spw' ) }
+					</p>
 				) : (
 					<FeedbackList entries={ entries } />
 				) }
