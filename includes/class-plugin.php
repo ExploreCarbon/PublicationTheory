@@ -13,5 +13,7 @@ final class Plugin {
 	 */
 	public static function boot(): void {
 		Caps::register();
+		Mailer::register();
+		Log_Screen::register();
 	}
 }
