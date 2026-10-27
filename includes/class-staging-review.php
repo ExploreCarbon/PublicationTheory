@@ -58,7 +58,6 @@ final class Staging_Review {
 			echo ' &middot; <a href="' . esc_url( $edit ) . '">' . esc_html__( 'Open proposed version in editor', 'spw' ) . '</a>';
 		}
 		echo '</p>';
-		echo '<p class="description">' . esc_html__( 'Featured image, custom fields and categories/tags from the proposed version are also applied on approval.', 'spw' ) . '</p>';
 
 		echo Staging_Diff::render( $copy_id ); // phpcs:ignore WordPress.Security.EscapeOutput -- escaped in render().
 

@@ -13,6 +13,7 @@ defined( 'ABSPATH' ) || exit;
 final class Staging {
 
 	public const META = '_spw_staged_for';
+	public const BASE = '_spw_base';
 
 	private const LIVE_STATUSES = array( 'publish', 'future' );
 	private const OPEN_STATUSES = array( 'draft', 'pending' );
@@ -195,6 +196,7 @@ final class Staging {
 			add_post_meta( $copy_id, self::META, (string) $live_id, true );
 			self::sync_meta( $live_id, $copy_id );
 			self::sync_terms( $live_id, $copy_id );
+			add_post_meta( $copy_id, self::BASE, wp_slash( self::snapshot( $live_id ) ), true );
 		} finally {
 			self::$internal = $previous;
 		}
@@ -247,11 +249,17 @@ final class Staging {
 			return $result;
 		}
 
+		$plan           = self::plan( $copy_id );
 		$previous       = self::$internal;
 		self::$internal = true;
 		try {
-			self::sync_meta( $copy_id, $live_id, true );
-			self::sync_terms( $copy_id, $live_id );
+			if ( null === $plan ) {
+				// No base snapshot (copy predates 3-way merge): full sync.
+				self::sync_meta( $copy_id, $live_id, true );
+				self::sync_terms( $copy_id, $live_id );
+			} else {
+				self::apply_plan( $live_id, $plan );
+			}
 		} finally {
 			self::$internal = $previous;
 		}
@@ -300,6 +308,145 @@ final class Staging {
 	}
 
 	/**
+	 * Syncable meta of a post: key => list of unserialized values.
+	 */
+	public static function meta_map( int $post_id ): array {
+		$out = array();
+		$all = get_post_meta( $post_id );
+		foreach ( is_array( $all ) ? $all : array() as $key => $values ) {
+			$key = (string) $key;
+			if ( self::syncable_key( $key ) ) {
+				$out[ $key ] = array_map( 'maybe_unserialize', (array) $values );
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Sorted term IDs per taxonomy of a post.
+	 */
+	public static function term_map( int $post_id ): array {
+		$out = array();
+		foreach ( get_object_taxonomies( (string) get_post_type( $post_id ) ) as $taxonomy ) {
+			$ids = wp_get_object_terms( $post_id, $taxonomy, array( 'fields' => 'ids' ) );
+			$ids = is_wp_error( $ids ) ? array() : array_map( 'intval', $ids );
+			sort( $ids );
+			$out[ $taxonomy ] = $ids;
+		}
+		return $out;
+	}
+
+	/**
+	 * Hash of a meta value list.
+	 */
+	private static function hash( array $values ): string {
+		return md5( serialize( $values ) ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions
+	}
+
+	/**
+	 * Base snapshot of a live post at copy time: meta hashes and term IDs.
+	 */
+	private static function snapshot( int $live_id ): array {
+		$meta = array();
+		foreach ( self::meta_map( $live_id ) as $key => $values ) {
+			$meta[ $key ] = self::hash( $values );
+		}
+		return array(
+			'meta'  => $meta,
+			'terms' => self::term_map( $live_id ),
+		);
+	}
+
+	/**
+	 * Three-way merge plan (base snapshot, copy, CURRENT live), or null when the copy has no base.
+	 *
+	 * meta:  key => {before: live values|null, after: copy values|null}, author-changed keys that differ from live.
+	 * terms: taxonomy => {added, removed, result} term IDs, author-changed taxonomies that differ from live.
+	 * live_changed: {meta: keys, terms: taxonomies} changed on live since the copy was opened.
+	 * The copy wins where author and live both changed the same key.
+	 */
+	public static function plan( int $copy_id ): ?array {
+		$live_id = self::live_id( $copy_id );
+		$base    = get_post_meta( $copy_id, self::BASE, true );
+		if ( ! $live_id || ! is_array( $base ) || ! isset( $base['meta'], $base['terms'] ) ) {
+			return null;
+		}
+		$base_meta = (array) $base['meta'];
+		$copy_meta = self::meta_map( $copy_id );
+		$live_meta = self::meta_map( $live_id );
+
+		$plan = array(
+			'meta'         => array(),
+			'terms'        => array(),
+			'live_changed' => array(
+				'meta'  => array(),
+				'terms' => array(),
+			),
+		);
+
+		$keys = array_unique( array_merge( array_keys( $base_meta ), array_keys( $copy_meta ), array_keys( $live_meta ) ) );
+		foreach ( $keys as $key ) {
+			$key = (string) $key;
+			$b   = isset( $base_meta[ $key ] ) ? (string) $base_meta[ $key ] : null;
+			$c   = isset( $copy_meta[ $key ] ) ? self::hash( $copy_meta[ $key ] ) : null;
+			$l   = isset( $live_meta[ $key ] ) ? self::hash( $live_meta[ $key ] ) : null;
+			if ( $l !== $b ) {
+				$plan['live_changed']['meta'][] = $key;
+			}
+			if ( $c === $b || $c === $l ) {
+				continue; // Author did not touch it, or live already matches.
+			}
+			$plan['meta'][ $key ] = array(
+				'before' => $live_meta[ $key ] ?? null,
+				'after'  => $copy_meta[ $key ] ?? null,
+			);
+		}
+
+		$base_terms = (array) $base['terms'];
+		$copy_terms = self::term_map( $copy_id );
+		$live_terms = self::term_map( $live_id );
+		foreach ( array_unique( array_merge( array_keys( $copy_terms ), array_keys( $base_terms ) ) ) as $taxonomy ) {
+			$taxonomy = (string) $taxonomy;
+			$b        = array_map( 'intval', (array) ( $base_terms[ $taxonomy ] ?? array() ) );
+			sort( $b );
+			$c = $copy_terms[ $taxonomy ] ?? array();
+			$l = $live_terms[ $taxonomy ] ?? array();
+			if ( $l !== $b ) {
+				$plan['live_changed']['terms'][] = $taxonomy;
+			}
+			$added   = array_diff( $c, $b );
+			$removed = array_diff( $b, $c );
+			$result  = array_values( array_unique( array_merge( array_diff( $l, $removed ), $added ) ) );
+			$result  = array_map( 'intval', $result );
+			sort( $result );
+			if ( $result === $l ) {
+				continue;
+			}
+			$plan['terms'][ $taxonomy ] = array(
+				'added'   => array_values( array_diff( $result, $l ) ),
+				'removed' => array_values( array_diff( $l, $result ) ),
+				'result'  => $result,
+			);
+		}
+		return $plan;
+	}
+
+	/**
+	 * Apply a merge plan to the live post.
+	 */
+	private static function apply_plan( int $live_id, array $plan ): void {
+		foreach ( $plan['meta'] as $key => $change ) {
+			delete_post_meta( $live_id, (string) $key );
+			foreach ( (array) ( $change['after'] ?? array() ) as $value ) {
+				add_post_meta( $live_id, (string) $key, wp_slash( $value ) );
+			}
+		}
+		foreach ( $plan['terms'] as $taxonomy => $change ) {
+			wp_set_object_terms( $live_id, $change['result'], (string) $taxonomy, false );
+		}
+	}
+
+	/**
 	 * Mirror all taxonomy terms from one post to another.
 	 */
 	private static function sync_terms( int $from, int $to ): void {
@@ -342,6 +489,11 @@ final class Staging {
 	public static function guard_live_write( $data, $postarr ): array {
 		$data = (array) $data;
 		$id   = (int) ( $postarr['ID'] ?? 0 );
+		if ( $id > 0 && self::is_staged( $id ) ) {
+			// A copy keeps its post type (never moved to an uncovered, unguarded type).
+			$data['post_type'] = (string) get_post_field( 'post_type', $id );
+			return $data;
+		}
 		if ( $id <= 0 || ! self::restricted( get_current_user_id(), $id ) ) {
 			return $data;
 		}
@@ -369,10 +521,39 @@ final class Staging {
 		if ( ! $post ) {
 			return false;
 		}
-		if ( self::META === $key && ! Caps::can_publish( $user, $post->post_type ) ) {
-			return true;
+		if ( 0 === strpos( $key, '_spw_' ) ) {
+			// Workflow-internal keys: never writable by non-publishers on markers, nor on live posts.
+			return ! Caps::can_publish( $user, $post->post_type )
+				&& ( self::META === $key || self::BASE === $key || self::restricted( $user, $post ) );
 		}
-		return '_edit_lock' !== $key && self::restricted( $user, $post );
+		return self::restricted( $user, $post ) && ! self::allowed_live_key( $key );
+	}
+
+	/**
+	 * Housekeeping meta that a non-publisher's request may still write on live posts.
+	 * Entries ending in "_" are prefixes. `_spw_*` is never allowed.
+	 */
+	public static function allowed_live_key( string $key ): bool {
+		if ( 0 === strpos( $key, '_spw_' ) ) {
+			return false;
+		}
+		$allowed = array( '_oembed_', '_encloseme', '_pingme', '_edit_lock', '_edit_last', '_wp_old_slug', '_wp_desired_post_slug', '_wp_trash_meta_' );
+		/**
+		 * Filter meta keys/prefixes (a trailing "_" marks a prefix) that non-publishers' requests may write on live posts.
+		 *
+		 * @param string[] $allowed Keys and prefixes.
+		 */
+		$allowed = (array) apply_filters( 'spw_allowed_live_meta_keys', $allowed );
+		foreach ( $allowed as $entry ) {
+			$entry = (string) $entry;
+			if ( '' === $entry ) {
+				continue;
+			}
+			if ( $key === $entry || ( '_' === substr( $entry, -1 ) && 0 === strpos( $key, $entry ) ) ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**
@@ -419,7 +600,7 @@ final class Staging {
 			return $check;
 		}
 		$meta = get_metadata_by_mid( 'post', (int) $meta_id );
-		if ( $meta && self::restricted( get_current_user_id(), (int) $meta->post_id ) ) {
+		if ( $meta && self::restricted( get_current_user_id(), (int) $meta->post_id ) && ! self::allowed_live_key( (string) $meta->meta_key ) ) {
 			return false;
 		}
 		return $check;

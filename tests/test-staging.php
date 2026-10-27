@@ -649,4 +649,130 @@ class SPW_Staging_Test extends WP_UnitTestCase {
 		wp_set_current_user( $this->author );
 		$this->assertSame( '', SPW\Staging::notice_html( $live ) );
 	}
+
+	// ---- fix round 1: 3-way merge, full diff, meta allowlist, post type pin ----
+
+	public function test_approve_three_way_merge_keeps_live_only_changes() {
+		$live = $this->live();
+		$copy = $this->copy_for( $live );
+		$tag2 = self::factory()->tag->create( array( 'name' => 'tag2' ) );
+		// Author: remove 'arr', add category Beta, change color.
+		wp_set_current_user( $this->author );
+		delete_post_meta( $copy, 'arr' );
+		update_post_meta( $copy, 'color', 'red' );
+		wp_set_object_terms( $copy, array( $this->cat_a, $this->cat_b ), 'category' );
+		SPW\Workflow::submit( $copy );
+		// Live changes after copy was opened (editor / plugin).
+		wp_set_current_user( $this->editor );
+		update_post_meta( $live, 'rank_math_title', 'SEO' );
+		update_post_meta( $live, 'color', 'green' );
+		wp_set_object_terms( $live, array( $tag2 ), 'post_tag', true );
+
+		ob_start();
+		$_GET = array( 'copy' => (string) $copy );
+		SPW\Staging_Review::render();
+		$html = ob_get_clean();
+		$this->assertStringContainsString( 'rank_math_title', $html );
+		$this->assertStringContainsString( 'Tags', $html );
+
+		$this->assertSame( $live, SPW\Staging::approve( $copy ) );
+		$this->assertSame( 'SEO', get_post_meta( $live, 'rank_math_title', true ) );
+		$this->assertSame( 'red', get_post_meta( $live, 'color', true ) );
+		$this->assertSame( '', get_post_meta( $live, 'arr', true ) );
+		$this->assertSame( array( 'one', 'two' ), get_post_meta( $live, 'multi' ) );
+		$expected = array( $this->cat_a, $this->cat_b );
+		sort( $expected );
+		$this->assertSame( $expected, $this->term_ids( $live, 'category' ) );
+		$tags = wp_get_object_terms( $live, 'post_tag', array( 'fields' => 'names' ) );
+		sort( $tags );
+		$this->assertSame( array( 'tag1', 'tag2' ), $tags );
+	}
+
+	private function other_section( int $copy ): string {
+		$html = SPW\Staging_Diff::render( $copy );
+		$pos  = strpos( $html, 'id="spw-diff-other"' );
+		$this->assertNotFalse( $pos );
+		return substr( $html, $pos );
+	}
+
+	public function test_diff_shows_image_change() {
+		$live   = $this->live();
+		$copy   = $this->copy_for( $live );
+		$this->assertStringContainsString( 'No changes', $this->other_section( $copy ) );
+		$thumb2 = self::factory()->attachment->create( array( 'post_mime_type' => 'image/jpeg', 'post_title' => 'New hero' ) );
+		update_post_meta( $copy, '_thumbnail_id', $thumb2 );
+		$html = $this->other_section( $copy );
+		$this->assertStringNotContainsString( 'No changes', $html );
+		$this->assertStringContainsString( 'Featured image', $html );
+		$this->assertStringContainsString( 'New hero', $html );
+	}
+
+	public function test_diff_shows_category_change() {
+		$live = $this->live();
+		$copy = $this->copy_for( $live );
+		wp_set_object_terms( $copy, array( $this->cat_b ), 'category' );
+		$html = $this->other_section( $copy );
+		$this->assertStringNotContainsString( 'No changes', $html );
+		$this->assertStringContainsString( 'Added: Beta', $html );
+		$this->assertStringContainsString( 'Removed: Alpha', $html );
+	}
+
+	public function test_diff_shows_meta_change_escaped_truncated() {
+		$live = $this->live();
+		$copy = $this->copy_for( $live );
+		update_post_meta( $copy, '_wp_page_template', 'wide.php' );
+		update_post_meta( $copy, 'arr', array( 'x' => '<script>alert(1)</script>' ) );
+		update_post_meta( $copy, 'long', str_repeat( 'z', 500 ) );
+		$html = $this->other_section( $copy );
+		$this->assertStringNotContainsString( 'No changes', $html );
+		$this->assertStringContainsString( '_wp_page_template', $html );
+		$this->assertStringContainsString( 'wide.php', $html );
+		$this->assertStringNotContainsString( '<script>alert', $html );
+		$this->assertStringNotContainsString( str_repeat( 'z', 201 ), $html );
+		$this->assertStringNotContainsString( '_spw_', $html );
+	}
+
+	public function test_live_meta_allowlist_and_filter() {
+		$live = $this->live();
+		wp_set_current_user( $this->author );
+		update_post_meta( $live, '_oembed_abc', '<iframe></iframe>' );
+		update_post_meta( $live, '_wp_desired_post_slug', 'x' );
+		update_post_meta( $live, 'view_count', '5' );
+		update_post_meta( $live, '_thumbnail_id', 999 );
+		update_post_meta( $live, 'custom_field', 'x' );
+		update_post_meta( $live, '_spw_feedback', 'forged' );
+		$this->assertSame( '<iframe></iframe>', get_post_meta( $live, '_oembed_abc', true ) );
+		$this->assertSame( 'x', get_post_meta( $live, '_wp_desired_post_slug', true ) );
+		$this->assertSame( '', get_post_meta( $live, 'view_count', true ) );
+		$this->assertSame( (string) $this->thumb, (string) get_post_meta( $live, '_thumbnail_id', true ) );
+		$this->assertSame( '', get_post_meta( $live, 'custom_field', true ) );
+		$this->assertSame( array( 'x' => 1 ), get_post_meta( $live, '_spw_feedback', true ) );
+
+		add_filter(
+			'spw_allowed_live_meta_keys',
+			static function ( $keys ) {
+				$keys[] = 'view_count';
+				$keys[] = '_spw_';
+				return $keys;
+			}
+		);
+		update_post_meta( $live, 'view_count', '6' );
+		update_post_meta( $live, '_spw_feedback', 'forged' );
+		remove_all_filters( 'spw_allowed_live_meta_keys' );
+		$this->assertSame( '6', get_post_meta( $live, 'view_count', true ) );
+		$this->assertSame( array( 'x' => 1 ), get_post_meta( $live, '_spw_feedback', true ) );
+	}
+
+	public function test_copy_post_type_pinned() {
+		register_post_type( 'spw_private_t', array( 'public' => false ) );
+		$live = $this->live();
+		$copy = $this->copy_for( $live );
+		wp_set_current_user( $this->author );
+		wp_update_post( array( 'ID' => $copy, 'post_type' => 'spw_private_t' ) );
+		$this->assertSame( 'post', get_post_type( $copy ) );
+		wp_set_current_user( $this->editor );
+		wp_update_post( array( 'ID' => $copy, 'post_type' => 'page' ) );
+		$this->assertSame( 'post', get_post_type( $copy ) );
+		unregister_post_type( 'spw_private_t' );
+	}
 }
