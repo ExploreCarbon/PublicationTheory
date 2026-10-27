@@ -17,5 +17,6 @@ final class Plugin {
 		Log_Screen::register();
 		Workflow::register();
 		Rest::register();
+		Queue::register();
 	}
 }
