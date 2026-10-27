@@ -2,9 +2,9 @@
 /**
  * PHPUnit bootstrap. Uses dedicated DB `spw_test` (never the site's `local` DB).
  */
-$db_name = getenv( 'SPW_TEST_DB_NAME' ) ?: 'spw_test';
-if ( 'local' === strtolower( $db_name ) ) {
-	fwrite( STDERR, "Refusing to run: DB_NAME must not be 'local'.\n" );
+$db_name = trim( (string) ( getenv( 'SPW_TEST_DB_NAME' ) ?: 'spw_test' ) );
+if ( ! preg_match( '/^spw_test/i', $db_name ) ) {
+	fwrite( STDERR, "Refusing to run: test DB name must start with 'spw_test' (got '$db_name').\n" );
 	exit( 1 );
 }
 

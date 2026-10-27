@@ -21,16 +21,15 @@ define( 'SPW_URL', plugin_dir_url( __FILE__ ) );
  */
 spl_autoload_register(
 	static function ( $class ) {
-		$bs = chr( 92 ); // Backslash.
-		if ( 0 !== strpos( $class, 'SPW' . $bs ) ) {
+		if ( 0 !== strpos( $class, 'SPW\\' ) ) {
 			return;
 		}
 		$name = strtolower( str_replace( '_', '-', substr( $class, 4 ) ) );
-		$file = SPW_DIR . 'includes/class-' . str_replace( $bs, '/', $name ) . '.php';
+		$file = SPW_DIR . 'includes/class-' . str_replace( '\\', '/', $name ) . '.php';
 		if ( is_readable( $file ) ) {
 			require_once $file;
 		}
 	}
 );
 
-add_action( 'plugins_loaded', array( 'SPW' . chr( 92 ) . 'Plugin', 'boot' ) );
+add_action( 'plugins_loaded', array( 'SPW\\Plugin', 'boot' ) );

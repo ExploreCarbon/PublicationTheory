@@ -1,7 +1,8 @@
 <?php
-$db_name = getenv( 'SPW_TEST_DB_NAME' ) ?: 'spw_test';
-if ( 'local' === strtolower( $db_name ) ) {
-	die( "Refusing: DB_NAME must not be 'local'.\n" );
+$db_name = trim( (string) ( getenv( 'SPW_TEST_DB_NAME' ) ?: 'spw_test' ) );
+if ( ! preg_match( '/^spw_test/i', $db_name ) ) {
+	fwrite( STDERR, "Refusing to run: test DB name must start with 'spw_test' (got '$db_name').\n" );
+	exit( 1 );
 }
 $spw_abs = getenv( 'SPW_WP_ABSPATH' );
 if ( ! $spw_abs ) {
