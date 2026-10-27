@@ -15,5 +15,7 @@ final class Plugin {
 		Caps::register();
 		Mailer::register();
 		Log_Screen::register();
+		Workflow::register();
+		Rest::register();
 	}
 }
