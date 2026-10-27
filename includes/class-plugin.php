@@ -22,5 +22,7 @@ final class Plugin {
 		Editor_Assets::register();
 		Staging::register();
 		Staging_Review::register();
+		Notes::register();
+		Presence::register();
 	}
 }

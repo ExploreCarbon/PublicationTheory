@@ -2,6 +2,9 @@ import { registerPlugin } from '@wordpress/plugins';
 import { PluginDocumentSettingPanel } from '@wordpress/editor';
 import { __ } from '@wordpress/i18n';
 import Panel from './panel';
+import initPresence from './presence';
+
+initPresence();
 
 const config = window.spwWorkflow || {};
 
