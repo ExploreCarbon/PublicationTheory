@@ -1,0 +1,801 @@
+<?php
+namespace SPW;
+
+defined( 'ABSPATH' ) || exit;
+
+/**
+ * Staged edits to live content (Phase 1b).
+ *
+ * A non-publisher never writes to a live (publish/future) covered post. Instead they edit a
+ * staged copy: a separate draft post of the same type carrying meta `_spw_staged_for` = live ID.
+ * Editors approve (merge into live, keeping a core revision) or send back.
+ */
+final class Staging {
+
+	public const META = '_spw_staged_for';
+
+	private const LIVE_STATUSES = array( 'publish', 'future' );
+	private const OPEN_STATUSES = array( 'draft', 'pending' );
+	private const ALL_STATUSES  = array( 'draft', 'pending', 'trash', 'auto-draft', 'publish', 'future', 'private' );
+
+	/**
+	 * Meta keys never cloned or synced.
+	 */
+	private const SKIP_META = array( '_edit_lock', '_edit_last', '_wp_old_slug', '_wp_old_date' );
+
+	/**
+	 * Bypass our map_meta_cap denial (to ask "would core allow?").
+	 *
+	 * @var bool
+	 */
+	private static $bypass = false;
+
+	/**
+	 * True while this class writes meta/terms itself.
+	 *
+	 * @var bool
+	 */
+	private static $internal = false;
+
+	/**
+	 * Register hooks.
+	 */
+	public static function register(): void {
+		add_filter( 'map_meta_cap', array( __CLASS__, 'map_meta_cap' ), 10, 4 );
+		add_filter( 'wp_insert_post_data', array( __CLASS__, 'guard_live_write' ), 20, 2 );
+		add_filter( 'add_post_metadata', array( __CLASS__, 'guard_add_meta' ), 10, 3 );
+		add_filter( 'update_post_metadata', array( __CLASS__, 'guard_update_meta' ), 10, 3 );
+		add_filter( 'delete_post_metadata', array( __CLASS__, 'guard_delete_meta' ), 10, 3 );
+		add_filter( 'update_post_metadata_by_mid', array( __CLASS__, 'guard_meta_by_mid' ), 10, 2 );
+		add_filter( 'delete_post_metadata_by_mid', array( __CLASS__, 'guard_meta_by_mid' ), 10, 2 );
+		add_action( 'set_object_terms', array( __CLASS__, 'guard_set_terms' ), 10, 6 );
+		add_action( 'deleted_term_relationships', array( __CLASS__, 'guard_removed_terms' ), 10, 3 );
+		add_filter( 'pre_trash_post', array( __CLASS__, 'guard_trash_delete' ), 10, 2 );
+		add_filter( 'pre_delete_post', array( __CLASS__, 'guard_trash_delete' ), 10, 2 );
+
+		add_action( 'pre_get_posts', array( __CLASS__, 'hide_copies' ) );
+		add_filter( 'wp_sitemaps_posts_query_args', array( __CLASS__, 'hide_in_args' ) );
+		add_action( 'rest_api_init', array( __CLASS__, 'register_rest_filters' ) );
+
+		add_filter( 'post_row_actions', array( __CLASS__, 'row_actions' ), 10, 2 );
+		add_filter( 'page_row_actions', array( __CLASS__, 'row_actions' ), 10, 2 );
+		add_action( 'admin_bar_menu', array( __CLASS__, 'admin_bar' ), 90 );
+		add_action( 'load-post.php', array( __CLASS__, 'on_load_post' ), 1 );
+		add_action( 'admin_post_spw_open_staged', array( __CLASS__, 'handle_open' ) );
+
+		add_action( 'wp_trash_post', array( __CLASS__, 'on_trash_live' ) );
+		add_action( 'before_delete_post', array( __CLASS__, 'on_delete_live' ) );
+		add_filter( 'spw_queue_item_kind', array( __CLASS__, 'kind' ), 10, 2 );
+		add_action( 'admin_notices', array( __CLASS__, 'admin_notice' ) );
+		add_action( 'enqueue_block_editor_assets', array( __CLASS__, 'editor_notice' ) );
+	}
+
+	// ------------------------------------------------------------------ API
+
+	/**
+	 * Live post ID a copy stages changes for, or null.
+	 */
+	public static function live_id( int $copy_id ): ?int {
+		$live = (int) get_post_meta( $copy_id, self::META, true );
+		return $live > 0 ? $live : null;
+	}
+
+	/**
+	 * Whether a post is a staged copy.
+	 */
+	public static function is_staged( int $post_id ): bool {
+		return $post_id > 0 && null !== self::live_id( $post_id );
+	}
+
+	/**
+	 * Whether a post is live covered content (and not itself a copy).
+	 */
+	public static function is_live( $post ): bool {
+		$post = get_post( $post );
+		return $post instanceof \WP_Post
+			&& in_array( $post->post_status, self::LIVE_STATUSES, true )
+			&& Types::is_covered( $post->post_type )
+			&& ! self::is_staged( (int) $post->ID );
+	}
+
+	/**
+	 * Whether a user is barred from writing to a post: logged-in non-publisher on live content.
+	 */
+	public static function restricted( int $user_id, $post ): bool {
+		$post = get_post( $post );
+		return $user_id > 0 && $post instanceof \WP_Post && self::is_live( $post ) && ! Caps::can_publish( $user_id, $post->post_type );
+	}
+
+	/**
+	 * Whether core (without our denial) would let the user edit the live post, i.e. may stage edits.
+	 */
+	public static function can_stage( int $user_id, int $live_id ): bool {
+		if ( $user_id <= 0 || ! self::is_live( $live_id ) ) {
+			return false;
+		}
+		$previous     = self::$bypass;
+		self::$bypass = true;
+		try {
+			return user_can( $user_id, 'edit_post', $live_id );
+		} finally {
+			self::$bypass = $previous;
+		}
+	}
+
+	/**
+	 * Open copy (draft or pending) of a live post, or 0.
+	 */
+	public static function find_copy( int $live_id, array $statuses = self::OPEN_STATUSES ): int {
+		$live = get_post( $live_id );
+		if ( ! $live || $live_id <= 0 ) {
+			return 0;
+		}
+		$ids = get_posts(
+			array(
+				'post_type'          => $live->post_type,
+				'post_status'        => $statuses,
+				'meta_key'           => self::META, // phpcs:ignore WordPress.DB.SlowDBQuery
+				'meta_value'         => (string) $live_id, // phpcs:ignore WordPress.DB.SlowDBQuery
+				'fields'             => 'ids',
+				'numberposts'        => 1,
+				'orderby'            => 'ID',
+				'order'              => 'ASC',
+				'spw_include_staged' => true,
+			)
+		);
+		return $ids ? (int) $ids[0] : 0;
+	}
+
+	/**
+	 * Return the open copy for a live post, creating it if needed.
+	 *
+	 * @return int|\WP_Error Copy ID.
+	 */
+	public static function open_for( int $live_id, int $author_id ) {
+		$live = get_post( $live_id );
+		if ( ! $live || ! self::is_live( $live ) ) {
+			return new \WP_Error( 'spw_not_live', __( 'Only published content can be staged.', 'spw' ), array( 'status' => 400 ) );
+		}
+		if ( ! self::can_stage( $author_id, $live_id ) ) {
+			return new \WP_Error( 'spw_forbidden', __( 'You cannot edit this item.', 'spw' ), array( 'status' => 403 ) );
+		}
+
+		$existing = self::find_copy( $live_id );
+		if ( $existing ) {
+			if ( (int) get_post_field( 'post_author', $existing ) !== $author_id ) {
+				return new \WP_Error( 'spw_copy_locked', __( 'Another user already has changes pending for this item.', 'spw' ), array( 'status' => 409 ) );
+			}
+			return $existing;
+		}
+
+		$copy_id = wp_insert_post(
+			wp_slash(
+				array(
+					'post_type'      => $live->post_type,
+					'post_status'    => 'draft',
+					'post_author'    => $author_id,
+					'post_title'     => $live->post_title,
+					'post_content'   => $live->post_content,
+					'post_excerpt'   => $live->post_excerpt,
+					'menu_order'     => $live->menu_order,
+					'comment_status' => $live->comment_status,
+					'ping_status'    => $live->ping_status,
+					'post_parent'    => 0,
+				)
+			),
+			true
+		);
+		if ( is_wp_error( $copy_id ) ) {
+			return $copy_id;
+		}
+
+		$previous       = self::$internal;
+		self::$internal = true;
+		try {
+			add_post_meta( $copy_id, self::META, (string) $live_id, true );
+			self::sync_meta( $live_id, $copy_id );
+			self::sync_terms( $live_id, $copy_id );
+		} finally {
+			self::$internal = $previous;
+		}
+		return (int) $copy_id;
+	}
+
+	/**
+	 * Merge a pending copy into its live post, then delete the copy.
+	 *
+	 * @return int|\WP_Error Live ID.
+	 */
+	public static function approve( int $copy_id ) {
+		$copy    = get_post( $copy_id );
+		$live_id = $copy ? self::live_id( $copy_id ) : null;
+		if ( ! $copy || ! $live_id ) {
+			return new \WP_Error( 'spw_not_staged', __( 'This is not a staged edit.', 'spw' ), array( 'status' => 400 ) );
+		}
+		$object = get_post_type_object( $copy->post_type );
+		if ( ! $object || ! current_user_can( $object->cap->edit_others_posts ) ) {
+			return new \WP_Error( 'spw_forbidden', __( 'You cannot approve this.', 'spw' ), array( 'status' => 403 ) );
+		}
+		$live = get_post( $live_id );
+		if ( ! $live || $live->post_type !== $copy->post_type || ! self::is_live( $live ) ) {
+			return new \WP_Error( 'spw_live_missing', __( 'The live item no longer exists.', 'spw' ), array( 'status' => 409 ) );
+		}
+		if ( 'pending' !== $copy->post_status ) {
+			return new \WP_Error( 'spw_not_pending', __( 'Only pending items can be approved.', 'spw' ), array( 'status' => 400 ) );
+		}
+
+		$actor     = get_current_user_id();
+		$author_id = (int) $copy->post_author;
+
+		// Make sure the prior live state exists as a revision (no-op when it already matches the latest one).
+		if ( wp_revisions_enabled( $live ) ) {
+			wp_save_post_revision( $live_id );
+		}
+
+		$result = wp_update_post(
+			wp_slash(
+				array(
+					'ID'           => $live_id,
+					'post_title'   => $copy->post_title,
+					'post_content' => $copy->post_content,
+					'post_excerpt' => $copy->post_excerpt,
+				)
+			),
+			true
+		);
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		$previous       = self::$internal;
+		self::$internal = true;
+		try {
+			self::sync_meta( $copy_id, $live_id, true );
+			self::sync_terms( $copy_id, $live_id );
+		} finally {
+			self::$internal = $previous;
+		}
+		clean_post_cache( $live_id );
+
+		wp_delete_post( $copy_id, true );
+
+		Mailer::notify( 'staged_approved', $live_id, $actor, $author_id );
+		return $live_id;
+	}
+
+	/**
+	 * Whether a meta key is copied between live and copy.
+	 */
+	private static function syncable_key( string $key ): bool {
+		return ! in_array( $key, self::SKIP_META, true )
+			&& 0 !== strpos( $key, '_spw_' )
+			&& 0 !== strpos( $key, '_wp_trash_meta_' );
+	}
+
+	/**
+	 * Copy syncable meta from one post to another. With $prune, remove target keys absent on source.
+	 */
+	private static function sync_meta( int $from, int $to, bool $prune = false ): void {
+		$source = get_post_meta( $from );
+		$source = is_array( $source ) ? $source : array();
+		if ( $prune ) {
+			$target = get_post_meta( $to );
+			foreach ( array_keys( is_array( $target ) ? $target : array() ) as $key ) {
+				$key = (string) $key;
+				if ( self::syncable_key( $key ) && ! array_key_exists( $key, $source ) ) {
+					delete_post_meta( $to, $key );
+				}
+			}
+		}
+		foreach ( $source as $key => $values ) {
+			$key = (string) $key;
+			if ( ! self::syncable_key( $key ) ) {
+				continue;
+			}
+			delete_post_meta( $to, $key );
+			foreach ( (array) $values as $value ) {
+				add_post_meta( $to, $key, wp_slash( maybe_unserialize( $value ) ) );
+			}
+		}
+	}
+
+	/**
+	 * Mirror all taxonomy terms from one post to another.
+	 */
+	private static function sync_terms( int $from, int $to ): void {
+		foreach ( get_object_taxonomies( get_post_type( $from ) ) as $taxonomy ) {
+			$ids = wp_get_object_terms( $from, $taxonomy, array( 'fields' => 'ids' ) );
+			if ( is_wp_error( $ids ) ) {
+				continue;
+			}
+			wp_set_object_terms( $to, array_map( 'intval', $ids ), $taxonomy, false );
+		}
+	}
+
+	// ------------------------------------------------------- write blocking
+
+	/**
+	 * Deny edit/delete of live covered posts to non-publishers (blocks wp-admin, REST, quick/bulk edit).
+	 *
+	 * @param string[] $caps    Primitive caps.
+	 * @param string   $cap     Meta cap.
+	 * @param int      $user_id User.
+	 * @param array    $args    Args.
+	 */
+	public static function map_meta_cap( $caps, $cap, $user_id, $args ): array {
+		$caps = (array) $caps;
+		if ( self::$bypass || ! in_array( $cap, array( 'edit_post', 'edit_page', 'delete_post', 'delete_page' ), true ) || empty( $args[0] ) ) {
+			return $caps;
+		}
+		if ( self::restricted( (int) $user_id, (int) $args[0] ) ) {
+			return array( 'do_not_allow' );
+		}
+		return $caps;
+	}
+
+	/**
+	 * Defense in depth: restore all post fields on a restricted live write.
+	 *
+	 * @param array $data    Slashed post data.
+	 * @param array $postarr Raw post array.
+	 */
+	public static function guard_live_write( $data, $postarr ): array {
+		$data = (array) $data;
+		$id   = (int) ( $postarr['ID'] ?? 0 );
+		if ( $id <= 0 || ! self::restricted( get_current_user_id(), $id ) ) {
+			return $data;
+		}
+		$old = get_post( $id );
+		foreach ( array_keys( $data ) as $field ) {
+			if ( isset( $old->$field ) ) {
+				$data[ $field ] = wp_slash( $old->$field );
+			}
+		}
+		return $data;
+	}
+
+	/**
+	 * Whether a meta write by the current user must be blocked.
+	 */
+	private static function meta_blocked( int $post_id, string $key ): bool {
+		if ( self::$internal ) {
+			return false;
+		}
+		$user = get_current_user_id();
+		if ( $user <= 0 ) {
+			return false;
+		}
+		$post = get_post( $post_id );
+		if ( ! $post ) {
+			return false;
+		}
+		if ( self::META === $key && ! Caps::can_publish( $user, $post->post_type ) ) {
+			return true;
+		}
+		return '_edit_lock' !== $key && self::restricted( $user, $post );
+	}
+
+	/**
+	 * Filter for add_post_metadata.
+	 *
+	 * @param mixed  $check   Short-circuit.
+	 * @param int    $post_id Post.
+	 * @param string $key     Key.
+	 */
+	public static function guard_add_meta( $check, $post_id, $key ) {
+		return self::meta_blocked( (int) $post_id, (string) $key ) ? false : $check;
+	}
+
+	/**
+	 * Filter for update_post_metadata.
+	 *
+	 * @param mixed  $check   Short-circuit.
+	 * @param int    $post_id Post.
+	 * @param string $key     Key.
+	 */
+	public static function guard_update_meta( $check, $post_id, $key ) {
+		return self::meta_blocked( (int) $post_id, (string) $key ) ? false : $check;
+	}
+
+	/**
+	 * Filter for delete_post_metadata.
+	 *
+	 * @param mixed  $check   Short-circuit.
+	 * @param int    $post_id Post.
+	 * @param string $key     Key.
+	 */
+	public static function guard_delete_meta( $check, $post_id, $key ) {
+		return self::meta_blocked( (int) $post_id, (string) $key ) ? false : $check;
+	}
+
+	/**
+	 * Filter for update/delete_post_metadata_by_mid (live posts only).
+	 *
+	 * @param mixed $check   Short-circuit.
+	 * @param int   $meta_id Meta ID.
+	 */
+	public static function guard_meta_by_mid( $check, $meta_id ) {
+		if ( self::$internal ) {
+			return $check;
+		}
+		$meta = get_metadata_by_mid( 'post', (int) $meta_id );
+		if ( $meta && self::restricted( get_current_user_id(), (int) $meta->post_id ) ) {
+			return false;
+		}
+		return $check;
+	}
+
+	/**
+	 * Term IDs for term_taxonomy IDs.
+	 *
+	 * @param int[] $tt_ids TT IDs.
+	 */
+	private static function term_ids( array $tt_ids, string $taxonomy ): array {
+		$out = array();
+		foreach ( $tt_ids as $tt_id ) {
+			$term = get_term_by( 'term_taxonomy_id', (int) $tt_id, $taxonomy );
+			if ( $term ) {
+				$out[] = (int) $term->term_id;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Whether a term change on an object must be undone.
+	 */
+	private static function terms_blocked( int $object_id, string $taxonomy ): bool {
+		if ( self::$internal ) {
+			return false;
+		}
+		$post = get_post( $object_id );
+		return $post && is_object_in_taxonomy( $post->post_type, $taxonomy ) && self::restricted( get_current_user_id(), $post );
+	}
+
+	/**
+	 * Undo wp_set_object_terms on restricted live posts (core has no pre-filter).
+	 */
+	public static function guard_set_terms( $object_id, $terms, $tt_ids, $taxonomy, $append, $old_tt_ids ): void {
+		if ( ! self::terms_blocked( (int) $object_id, (string) $taxonomy ) ) {
+			return;
+		}
+		self::$internal = true;
+		try {
+			wp_set_object_terms( (int) $object_id, self::term_ids( array_map( 'intval', (array) $old_tt_ids ), (string) $taxonomy ), (string) $taxonomy, false );
+		} finally {
+			self::$internal = false; // Only reached from a non-internal call (checked above).
+		}
+	}
+
+	/**
+	 * Undo wp_remove_object_terms on restricted live posts.
+	 */
+	public static function guard_removed_terms( $object_id, $tt_ids, $taxonomy ): void {
+		if ( ! self::terms_blocked( (int) $object_id, (string) $taxonomy ) ) {
+			return;
+		}
+		self::$internal = true;
+		try {
+			wp_set_object_terms( (int) $object_id, self::term_ids( array_map( 'intval', (array) $tt_ids ), (string) $taxonomy ), (string) $taxonomy, true );
+		} finally {
+			self::$internal = false;
+		}
+	}
+
+	/**
+	 * Block trash/delete of live posts by restricted users.
+	 *
+	 * @param mixed    $check Short-circuit.
+	 * @param \WP_Post $post  Post.
+	 */
+	public static function guard_trash_delete( $check, $post ) {
+		if ( $post instanceof \WP_Post && self::restricted( get_current_user_id(), $post ) ) {
+			return false;
+		}
+		return $check;
+	}
+
+	// --------------------------------------------------------------- hiding
+
+	/**
+	 * The meta clause excluding copies.
+	 */
+	private static function clause(): array {
+		return array(
+			'key'     => self::META,
+			'compare' => 'NOT EXISTS',
+		);
+	}
+
+	/**
+	 * Merge the exclusion clause into a meta_query value.
+	 *
+	 * @param mixed $meta_query Existing meta_query.
+	 */
+	private static function with_clause( $meta_query ): array {
+		if ( empty( $meta_query ) || ! is_array( $meta_query ) ) {
+			return array( self::clause() );
+		}
+		return array(
+			'relation' => 'AND',
+			self::clause(),
+			$meta_query,
+		);
+	}
+
+	/**
+	 * Whether a post_type query value can include covered types.
+	 *
+	 * @param mixed $post_type Query value.
+	 */
+	private static function touches_covered( $post_type ): bool {
+		if ( empty( $post_type ) || 'any' === $post_type ) {
+			return true;
+		}
+		foreach ( (array) $post_type as $type ) {
+			if ( 'any' === $type || Types::is_covered( (string) $type ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * pre_get_posts: exclude copies from every query unless it opts in with spw_include_staged.
+	 * Lookups by explicit ID (p / page_id) are left alone; post status protects copies there.
+	 *
+	 * @param \WP_Query $query Query.
+	 */
+	public static function hide_copies( $query ): void {
+		if ( ! $query instanceof \WP_Query || $query->get( 'spw_include_staged' ) || $query->get( 'spw_staged_hidden' ) ) {
+			return;
+		}
+		if ( (int) $query->get( 'p' ) > 0 || (int) $query->get( 'page_id' ) > 0 || (int) $query->get( 'attachment_id' ) > 0 ) {
+			return;
+		}
+		if ( ! self::touches_covered( $query->get( 'post_type' ) ) ) {
+			return;
+		}
+		$query->set( 'meta_query', self::with_clause( $query->get( 'meta_query' ) ) );
+		$query->set( 'spw_staged_hidden', true );
+	}
+
+	/**
+	 * Add the exclusion to query args (REST collections, sitemaps).
+	 *
+	 * @param array $args Query args.
+	 */
+	public static function hide_in_args( $args ): array {
+		$args = (array) $args;
+		unset( $args['spw_include_staged'] );
+		$args['meta_query']        = self::with_clause( $args['meta_query'] ?? array() ); // phpcs:ignore WordPress.DB.SlowDBQuery
+		$args['spw_staged_hidden'] = true;
+		return $args;
+	}
+
+	/**
+	 * Register rest_{type}_query filters for covered types.
+	 */
+	public static function register_rest_filters(): void {
+		foreach ( Types::covered() as $type ) {
+			add_filter( "rest_{$type}_query", array( __CLASS__, 'hide_in_args' ) );
+		}
+	}
+
+	// ------------------------------------------------------ edit entry points
+
+	/**
+	 * URL of the nonce-protected "open staged copy" endpoint.
+	 */
+	public static function open_url( int $live_id ): string {
+		return wp_nonce_url(
+			add_query_arg(
+				array(
+					'action'  => 'spw_open_staged',
+					'post_id' => $live_id,
+				),
+				admin_url( 'admin-post.php' )
+			),
+			'spw_open_staged_' . $live_id
+		);
+	}
+
+	/**
+	 * Whether the current user should be routed to a staged copy for this post.
+	 */
+	private static function routes_to_copy( int $post_id ): bool {
+		$user = get_current_user_id();
+		return self::restricted( $user, $post_id ) && self::can_stage( $user, $post_id );
+	}
+
+	/**
+	 * Row action "Edit" for restricted users (core omits it because edit_post is denied).
+	 *
+	 * @param array    $actions Actions.
+	 * @param \WP_Post $post    Post.
+	 */
+	public static function row_actions( $actions, $post ): array {
+		$actions = (array) $actions;
+		if ( ! $post instanceof \WP_Post || ! self::routes_to_copy( (int) $post->ID ) ) {
+			return $actions;
+		}
+		$title           = get_the_title( $post );
+		$actions['edit'] = sprintf(
+			'<a href="%s" aria-label="%s">%s</a>',
+			esc_url( self::open_url( (int) $post->ID ) ),
+			/* translators: %s: post title */
+			esc_attr( sprintf( __( 'Edit "%s" (changes go to review)', 'spw' ), $title ) ),
+			esc_html__( 'Edit', 'spw' )
+		);
+		return $actions;
+	}
+
+	/**
+	 * Admin bar "Edit" node on a live singular view for restricted users.
+	 *
+	 * @param \WP_Admin_Bar $bar Admin bar.
+	 */
+	public static function admin_bar( $bar ): void {
+		if ( is_admin() || ! is_singular() || ! $bar instanceof \WP_Admin_Bar ) {
+			return;
+		}
+		$post = get_queried_object();
+		if ( ! $post instanceof \WP_Post || ! self::routes_to_copy( (int) $post->ID ) || $bar->get_node( 'edit' ) ) {
+			return;
+		}
+		$bar->add_node(
+			array(
+				'id'    => 'edit',
+				'title' => esc_html__( 'Edit', 'spw' ),
+				'href'  => self::open_url( (int) $post->ID ),
+			)
+		);
+	}
+
+	/**
+	 * Redirect a restricted user away from the live edit screen. Existing copy: straight there.
+	 * No copy yet: show a nonce-protected link rather than create one on a bare GET.
+	 */
+	public static function on_load_post(): void {
+		$post_id = isset( $_GET['post'] ) ? absint( wp_unslash( $_GET['post'] ) ) : 0; // phpcs:ignore WordPress.Security.NonceVerification
+		$action  = isset( $_GET['action'] ) ? sanitize_key( wp_unslash( $_GET['action'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification
+		if ( $post_id <= 0 || 'edit' !== $action || ! self::routes_to_copy( $post_id ) ) {
+			return;
+		}
+		$copy = self::find_copy( $post_id );
+		if ( $copy && (int) get_post_field( 'post_author', $copy ) === get_current_user_id() ) {
+			wp_safe_redirect( admin_url( 'post.php?post=' . $copy . '&action=edit' ) );
+			exit;
+		}
+		$message = '<p>' . esc_html__( 'This item is live. Your changes will be saved as a copy and sent to an editor for review.', 'spw' ) . '</p>'
+			. '<p><a class="button button-primary" href="' . esc_url( self::open_url( $post_id ) ) . '">' . esc_html__( 'Edit a copy for review', 'spw' ) . '</a></p>';
+		wp_die( $message, esc_html__( 'Edit live content', 'spw' ), array( 'response' => 200 ) ); // phpcs:ignore WordPress.Security.EscapeOutput -- built from escaped parts.
+	}
+
+	/**
+	 * admin-post: open (or create) the copy and go to its edit screen.
+	 */
+	public static function handle_open(): void {
+		$post_id = isset( $_GET['post_id'] ) ? absint( wp_unslash( $_GET['post_id'] ) ) : 0; // phpcs:ignore WordPress.Security.NonceVerification -- verified next line.
+		check_admin_referer( 'spw_open_staged_' . $post_id );
+		$copy = self::open_for( $post_id, get_current_user_id() );
+		if ( is_wp_error( $copy ) ) {
+			wp_die( esc_html( $copy->get_error_message() ), '', array( 'response' => 403 ) );
+		}
+		wp_safe_redirect( admin_url( 'post.php?post=' . (int) $copy . '&action=edit' ) );
+		exit;
+	}
+
+	// ------------------------------------------------------------ lifecycle
+
+	/**
+	 * Trash the copy with its live post.
+	 *
+	 * @param int $post_id Post being trashed.
+	 */
+	public static function on_trash_live( $post_id ): void {
+		$post_id = (int) $post_id;
+		if ( self::is_staged( $post_id ) ) {
+			return;
+		}
+		$copy = self::find_copy( $post_id );
+		if ( $copy ) {
+			wp_trash_post( $copy );
+		}
+	}
+
+	/**
+	 * Delete copies (any status) with their live post.
+	 *
+	 * @param int $post_id Post being deleted.
+	 */
+	public static function on_delete_live( $post_id ): void {
+		$post_id = (int) $post_id;
+		if ( self::is_staged( $post_id ) ) {
+			return;
+		}
+		$copy = self::find_copy( $post_id, self::ALL_STATUSES );
+		while ( $copy ) {
+			wp_delete_post( $copy, true );
+			$next = self::find_copy( $post_id, self::ALL_STATUSES );
+			$copy = $next !== $copy ? $next : 0;
+		}
+	}
+
+	// ------------------------------------------------------------ admin UI
+
+	/**
+	 * Queue kind label.
+	 *
+	 * @param string $kind    Kind.
+	 * @param int    $post_id Post.
+	 */
+	public static function kind( $kind, $post_id ): string {
+		return self::is_staged( (int) $post_id ) ? __( 'Staged edit', 'spw' ) : (string) $kind;
+	}
+
+	/**
+	 * Review screen URL for a copy.
+	 */
+	public static function review_url( int $copy_id ): string {
+		return add_query_arg(
+			array(
+				'page' => Staging_Review::SLUG,
+				'copy' => $copy_id,
+			),
+			admin_url( 'admin.php' )
+		);
+	}
+
+	/**
+	 * Notice markup for Editors on a live post with pending changes ('' otherwise).
+	 */
+	public static function notice_html( int $live_id ): string {
+		$post = get_post( $live_id );
+		if ( ! $post || ! self::is_live( $post ) ) {
+			return '';
+		}
+		$object = get_post_type_object( $post->post_type );
+		if ( ! $object || ! current_user_can( $object->cap->edit_others_posts ) ) {
+			return '';
+		}
+		$copy = self::find_copy( $live_id, array( 'pending' ) );
+		if ( ! $copy ) {
+			return '';
+		}
+		return '<div class="notice notice-warning"><p>' . esc_html__( 'Changes pending review.', 'spw' )
+			. ' <a href="' . esc_url( self::review_url( $copy ) ) . '">' . esc_html__( 'Review staged changes', 'spw' ) . '</a></p></div>';
+	}
+
+	/**
+	 * Classic edit screen notice.
+	 */
+	public static function admin_notice(): void {
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+		if ( ! $screen || 'post' !== $screen->base ) {
+			return;
+		}
+		$post_id = isset( $_GET['post'] ) ? absint( wp_unslash( $_GET['post'] ) ) : 0; // phpcs:ignore WordPress.Security.NonceVerification
+		echo self::notice_html( $post_id ); // phpcs:ignore WordPress.Security.EscapeOutput -- escaped in notice_html().
+	}
+
+	/**
+	 * Block editor notice (the block editor does not render admin_notices).
+	 */
+	public static function editor_notice(): void {
+		$post_id = isset( $_GET['post'] ) ? absint( wp_unslash( $_GET['post'] ) ) : 0; // phpcs:ignore WordPress.Security.NonceVerification
+		if ( '' === self::notice_html( $post_id ) ) {
+			return;
+		}
+		$copy   = self::find_copy( $post_id, array( 'pending' ) );
+		$config = array(
+			'message' => __( 'Changes pending review.', 'spw' ),
+			'label'   => __( 'Review staged changes', 'spw' ),
+			'url'     => self::review_url( $copy ),
+		);
+		wp_add_inline_script(
+			'wp-edit-post',
+			'(function(c){wp.domReady&&wp.domReady(function(){wp.data.dispatch("core/notices").createNotice("warning",c.message,{id:"spw-staged",isDismissible:true,actions:[{label:c.label,url:c.url}]});});})(' . wp_json_encode( $config ) . ');'
+		);
+	}
+}

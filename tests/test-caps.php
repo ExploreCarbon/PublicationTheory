@@ -55,11 +55,19 @@ class SPW_Caps_Test extends WP_UnitTestCase {
 	}
 
 	public function test_author_keeps_edit_published_posts() {
+		$post = self::factory()->post->create( array( 'post_author' => $this->author, 'post_status' => 'publish' ) );
 		wp_set_current_user( $this->author );
 		$this->assertTrue( current_user_can( 'edit_published_posts' ) );
 		$this->assertTrue( current_user_can( 'delete_published_posts' ) );
-		$post = self::factory()->post->create( array( 'post_author' => $this->author, 'post_status' => 'publish' ) );
-		$this->assertTrue( current_user_can( 'edit_post', $post ) );
+		// Task 9 supersedes edit_post on live content: Authors stage edits through a copy instead.
+		$this->assertSame( 'publish', get_post_status( $post ) );
+		$this->assertFalse( current_user_can( 'edit_post', $post ) );
+		$this->assertFalse( current_user_can( 'delete_post', $post ) );
+		$this->assertTrue( SPW\Staging::can_stage( $this->author, $post ) );
+		$draft = self::factory()->post->create( array( 'post_author' => $this->author, 'post_status' => 'draft' ) );
+		$this->assertTrue( current_user_can( 'edit_post', $draft ) );
+		$copy = SPW\Staging::open_for( $post, $this->author );
+		$this->assertTrue( current_user_can( 'edit_post', $copy ) );
 	}
 
 	public function test_editor_and_admin_unchanged() {

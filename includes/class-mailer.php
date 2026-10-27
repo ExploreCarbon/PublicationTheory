@@ -28,14 +28,16 @@ final class Mailer {
 	 * @param string $event    submitted|sent_back|published|staged_submitted|staged_approved.
 	 * @param int    $post_id  Post (or staged copy) ID.
 	 * @param int    $actor_id User who triggered the event.
+	 * @param int    $author_id Optional author to notify instead of the post's author (non-submit events),
+	 *                          e.g. the staged copy's author after the copy was merged and deleted.
 	 */
-	public static function notify( string $event, int $post_id, int $actor_id ): void {
+	public static function notify( string $event, int $post_id, int $actor_id, int $author_id = 0 ): void {
 		$post = get_post( $post_id );
 		if ( ! $post ) {
 			return;
 		}
 
-		$recipients = self::recipients( $event, $post, $actor_id );
+		$recipients = self::recipients( $event, $post, $actor_id, $author_id );
 		/**
 		 * Filter notification recipient user IDs.
 		 *
@@ -113,7 +115,7 @@ final class Mailer {
 	 *
 	 * @return int[]
 	 */
-	private static function recipients( string $event, \WP_Post $post, int $actor_id ): array {
+	private static function recipients( string $event, \WP_Post $post, int $actor_id, int $author_id = 0 ): array {
 		if ( in_array( $event, array( 'submitted', 'staged_submitted' ), true ) ) {
 			$ids = get_users(
 				array(
@@ -122,7 +124,7 @@ final class Mailer {
 				)
 			);
 		} else {
-			$ids = array( (int) $post->post_author );
+			$ids = array( $author_id > 0 ? $author_id : (int) $post->post_author );
 		}
 		$ids = array_map( 'intval', $ids );
 		return array_values( array_diff( $ids, array( $actor_id ) ) );

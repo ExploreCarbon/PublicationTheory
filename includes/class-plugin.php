@@ -20,5 +20,6 @@ final class Plugin {
 		Queue::register();
 		Admin_Post::register();
 		Editor_Assets::register();
+		Staging::register();
 	}
 }

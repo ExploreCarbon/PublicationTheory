@@ -38,7 +38,17 @@ final class Workflow {
 		$old   = $id ? get_post( $id ) : null;
 		$prior = $old ? $old->post_status : '';
 
-		if ( $user <= 0 || ! Types::is_covered( $type ) ) {
+		if ( ! Types::is_covered( $type ) ) {
+			return $data;
+		}
+
+		// A staged copy never becomes public, whoever asks (approve merges it into the live post instead).
+		if ( $id && Staging::is_staged( $id ) && in_array( $new, array( 'publish', 'future', 'private' ), true ) ) {
+			$data['post_status'] = 'pending';
+			return $data;
+		}
+
+		if ( $user <= 0 ) {
 			return $data;
 		}
 
@@ -64,10 +74,11 @@ final class Workflow {
 		if ( $new === $old || ! $post instanceof \WP_Post || ! Types::is_covered( $post->post_type ) ) {
 			return;
 		}
-		$user = get_current_user_id();
+		$user   = get_current_user_id();
+		$staged = Staging::is_staged( (int) $post->ID );
 		if ( 'pending' === $new && $user > 0 && ! Caps::can_publish( $user, $post->post_type ) ) {
-			Mailer::notify( 'submitted', $post->ID, $user );
-		} elseif ( 'publish' === $new ) {
+			Mailer::notify( $staged ? 'staged_submitted' : 'submitted', $post->ID, $user );
+		} elseif ( 'publish' === $new && ! $staged ) {
 			Mailer::notify( 'published', $post->ID, $user );
 		}
 	}
