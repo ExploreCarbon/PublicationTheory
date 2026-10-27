@@ -25,17 +25,11 @@ final class Queue {
 		if ( ! $types ) {
 			return 0;
 		}
-		$query = new \WP_Query(
-			array(
-				'post_type'              => $types,
-				'post_status'            => 'pending',
-				'posts_per_page'         => 1,
-				'fields'                 => 'ids',
-				'update_post_meta_cache' => false,
-				'update_post_term_cache' => false,
-			)
-		);
-		return (int) $query->found_posts;
+		$total = 0;
+		foreach ( $types as $type ) {
+			$total += (int) ( wp_count_posts( $type )->pending ?? 0 );
+		}
+		return $total;
 	}
 
 	/**
@@ -62,7 +56,7 @@ final class Queue {
 				esc_html(
 					sprintf(
 						/* translators: %d: number of items */
-						__( '%d items pending review', 'spw' ),
+						_n( '%d item pending review', '%d items pending review', $count, 'spw' ),
 						$count
 					)
 				)

@@ -50,7 +50,7 @@ class SPW_Queue_Test extends WP_UnitTestCase {
 		$title = reset( $titles );
 		$this->assertStringContainsString( 'Review Queue', $title );
 		$this->assertStringContainsString( 'count-1', $title );
-		$this->assertStringContainsString( '1 items pending review', $title );
+		$this->assertStringContainsString( '1 item pending review', $title );
 	}
 
 	public function test_menu_badge_omitted_when_zero() {
@@ -81,5 +81,28 @@ class SPW_Queue_Test extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'A &lt;b&gt;x&lt;/b&gt;', $html );
 		$this->assertStringContainsString( '>Review<', $html );
 		$this->assertStringContainsString( 'New', $html );
+	}
+
+	public function test_badge_pluralizes() {
+		$GLOBALS['menu'] = array();
+		self::factory()->post->create( array( 'post_status' => 'pending' ) );
+		self::factory()->post->create( array( 'post_status' => 'pending' ) );
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'editor' ) ) );
+		SPW\Queue::add_menu();
+		$this->assertStringContainsString( '2 items pending review', reset( $GLOBALS['menu'] )[0] );
+	}
+
+	public function test_render_denied_for_authors() {
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'author' ) ) );
+		add_filter(
+			'wp_die_handler',
+			static function () {
+				return static function () {
+					throw new WPDieException( 'denied' );
+				};
+			}
+		);
+		$this->expectException( WPDieException::class );
+		SPW\Queue::render();
 	}
 }
