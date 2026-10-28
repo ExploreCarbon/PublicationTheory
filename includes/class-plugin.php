@@ -24,5 +24,6 @@ final class Plugin {
 		Staging_Review::register();
 		Notes::register();
 		Presence::register();
+		Dashboard::register();
 	}
 }
