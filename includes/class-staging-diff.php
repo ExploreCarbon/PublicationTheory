@@ -1,5 +1,5 @@
 <?php
-namespace SPW;
+namespace PublicationTheory;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -20,15 +20,15 @@ final class Staging_Diff {
 		}
 
 		$fields = array(
-			'post_title'   => __( 'Title', 'spw' ),
-			'post_content' => __( 'Content', 'spw' ),
-			'post_excerpt' => __( 'Excerpt', 'spw' ),
+			'post_title'   => __( 'Title', 'publication-theory' ),
+			'post_content' => __( 'Content', 'publication-theory' ),
+			'post_excerpt' => __( 'Excerpt', 'publication-theory' ),
 		);
 
 		$out = '';
 		foreach ( $fields as $field => $label ) {
-			$heading_id = 'spw-diff-' . str_replace( '_', '-', $field );
-			$out       .= '<section class="spw-diff" aria-labelledby="' . esc_attr( $heading_id ) . '">';
+			$heading_id = 'pt-diff-' . str_replace( '_', '-', $field );
+			$out       .= '<section class="pt-diff" aria-labelledby="' . esc_attr( $heading_id ) . '">';
 			$out       .= '<h2 id="' . esc_attr( $heading_id ) . '">' . esc_html( $label ) . '</h2>';
 			// wp_text_diff() HTML-encodes the compared text; titles are escaped here.
 			$diff = wp_text_diff(
@@ -36,11 +36,11 @@ final class Staging_Diff {
 				(string) $copy->$field,
 				array(
 					'title'       => esc_html( $label ),
-					'title_left'  => esc_html__( 'Live', 'spw' ),
-					'title_right' => esc_html__( 'Proposed', 'spw' ),
+					'title_left'  => esc_html__( 'Live', 'publication-theory' ),
+					'title_right' => esc_html__( 'Proposed', 'publication-theory' ),
 				)
 			);
-			$out .= '' !== (string) $diff ? $diff : '<p>' . esc_html__( 'No changes.', 'spw' ) . '</p>';
+			$out .= '' !== (string) $diff ? $diff : '<p>' . esc_html__( 'No changes.', 'publication-theory' ) . '</p>';
 			$out .= '</section>';
 		}
 		return $out . self::other_changes( $copy_id );
@@ -51,9 +51,9 @@ final class Staging_Diff {
 	 */
 	private static function other_changes( int $copy_id ): string {
 		$plan = Staging::plan( $copy_id );
-		$out  = '<section class="spw-diff" aria-labelledby="spw-diff-other"><h2 id="spw-diff-other">' . esc_html__( 'Other changes', 'spw' ) . '</h2>';
+		$out  = '<section class="pt-diff" aria-labelledby="pt-diff-other"><h2 id="pt-diff-other">' . esc_html__( 'Other changes', 'publication-theory' ) . '</h2>';
 		if ( null === $plan ) {
-			return $out . '<p>' . esc_html__( 'Featured image, custom fields and terms will be replaced with the proposed version.', 'spw' ) . '</p></section>';
+			return $out . '<p>' . esc_html__( 'Featured image, custom fields and terms will be replaced with the proposed version.', 'publication-theory' ) . '</p></section>';
 		}
 
 		$changed = $plan['live_changed'];
@@ -64,27 +64,27 @@ final class Staging_Diff {
 				$tax     = get_taxonomy( $taxonomy );
 				$names[] = $tax ? $tax->labels->name : $taxonomy;
 			}
-			$out .= '<div class="notice notice-warning inline"><p>' . esc_html__( 'The live item changed after this copy was opened. Changes made only on the live item are kept; where both changed, the proposed version wins.', 'spw' ) . '</p>';
+			$out .= '<div class="notice notice-warning inline"><p>' . esc_html__( 'The live item changed after this copy was opened. Changes made only on the live item are kept; where both changed, the proposed version wins.', 'publication-theory' ) . '</p>';
 			if ( $changed['fields'] ) {
 				$labels = array(
-					'post_title'   => __( 'Title', 'spw' ),
-					'post_content' => __( 'Content', 'spw' ),
-					'post_excerpt' => __( 'Excerpt', 'spw' ),
+					'post_title'   => __( 'Title', 'publication-theory' ),
+					'post_content' => __( 'Content', 'publication-theory' ),
+					'post_excerpt' => __( 'Excerpt', 'publication-theory' ),
 				);
 				$fields = array();
 				foreach ( $changed['fields'] as $field ) {
 					$fields[] = $labels[ $field ] ?? $field;
 				}
 				/* translators: %s: comma-separated field names */
-				$out .= '<p>' . esc_html( sprintf( __( 'Live changed since this copy was opened: %s (the proposed version will replace them).', 'spw' ), implode( ', ', $fields ) ) ) . '</p>';
+				$out .= '<p>' . esc_html( sprintf( __( 'Live changed since this copy was opened: %s (the proposed version will replace them).', 'publication-theory' ), implode( ', ', $fields ) ) ) . '</p>';
 			}
 			if ( $changed['meta'] ) {
 				/* translators: %s: comma-separated meta keys */
-				$out .= '<p>' . esc_html( sprintf( __( 'Fields changed on live: %s', 'spw' ), implode( ', ', $changed['meta'] ) ) ) . '</p>';
+				$out .= '<p>' . esc_html( sprintf( __( 'Fields changed on live: %s', 'publication-theory' ), implode( ', ', $changed['meta'] ) ) ) . '</p>';
 			}
 			if ( $names ) {
 				/* translators: %s: comma-separated taxonomy names */
-				$out .= '<p>' . esc_html( sprintf( __( 'Terms changed on live: %s', 'spw' ), implode( ', ', $names ) ) ) . '</p>';
+				$out .= '<p>' . esc_html( sprintf( __( 'Terms changed on live: %s', 'publication-theory' ), implode( ', ', $names ) ) ) . '</p>';
 			}
 			$out .= '</div>';
 		}
@@ -92,16 +92,16 @@ final class Staging_Diff {
 		$rows = '';
 		$meta = $plan['meta'];
 		if ( isset( $meta['_thumbnail_id'] ) ) {
-			$rows .= self::row( __( 'Featured image', 'spw' ), self::image( $meta['_thumbnail_id']['before'] ), self::image( $meta['_thumbnail_id']['after'] ) );
+			$rows .= self::row( __( 'Featured image', 'publication-theory' ), self::image( $meta['_thumbnail_id']['before'] ), self::image( $meta['_thumbnail_id']['after'] ) );
 			unset( $meta['_thumbnail_id'] );
 		}
 		foreach ( $plan['terms'] as $taxonomy => $change ) {
 			$tax   = get_taxonomy( (string) $taxonomy );
 			$label = $tax ? $tax->labels->name : (string) $taxonomy;
 			/* translators: %s: term names */
-			$before = $change['removed'] ? sprintf( __( 'Removed: %s', 'spw' ), self::term_names( $change['removed'], (string) $taxonomy ) ) : '';
+			$before = $change['removed'] ? sprintf( __( 'Removed: %s', 'publication-theory' ), self::term_names( $change['removed'], (string) $taxonomy ) ) : '';
 			/* translators: %s: term names */
-			$after = $change['added'] ? sprintf( __( 'Added: %s', 'spw' ), self::term_names( $change['added'], (string) $taxonomy ) ) : '';
+			$after = $change['added'] ? sprintf( __( 'Added: %s', 'publication-theory' ), self::term_names( $change['added'], (string) $taxonomy ) ) : '';
 			$rows .= self::row( $label, $before, $after );
 		}
 		foreach ( $meta as $key => $change ) {
@@ -109,12 +109,12 @@ final class Staging_Diff {
 		}
 
 		if ( '' === $rows ) {
-			return $out . '<p>' . esc_html__( 'No changes.', 'spw' ) . '</p></section>';
+			return $out . '<p>' . esc_html__( 'No changes.', 'publication-theory' ) . '</p></section>';
 		}
-		$out .= '<table class="widefat striped"><caption class="screen-reader-text">' . esc_html__( 'Other changes', 'spw' ) . '</caption><thead><tr>'
-			. '<th scope="col">' . esc_html__( 'Field', 'spw' ) . '</th>'
-			. '<th scope="col">' . esc_html__( 'Live', 'spw' ) . '</th>'
-			. '<th scope="col">' . esc_html__( 'Proposed', 'spw' ) . '</th></tr></thead><tbody>' . $rows . '</tbody></table></section>';
+		$out .= '<table class="widefat striped"><caption class="screen-reader-text">' . esc_html__( 'Other changes', 'publication-theory' ) . '</caption><thead><tr>'
+			. '<th scope="col">' . esc_html__( 'Field', 'publication-theory' ) . '</th>'
+			. '<th scope="col">' . esc_html__( 'Live', 'publication-theory' ) . '</th>'
+			. '<th scope="col">' . esc_html__( 'Proposed', 'publication-theory' ) . '</th></tr></thead><tbody>' . $rows . '</tbody></table></section>';
 		return $out;
 	}
 
@@ -122,7 +122,7 @@ final class Staging_Diff {
 	 * One escaped table row.
 	 */
 	private static function row( string $label, string $before, string $after ): string {
-		$none = __( '(none)', 'spw' );
+		$none = __( '(none)', 'publication-theory' );
 		return '<tr><th scope="row">' . esc_html( $label ) . '</th><td>' . esc_html( '' !== $before ? $before : $none ) . '</td><td>' . esc_html( '' !== $after ? $after : $none ) . '</td></tr>';
 	}
 

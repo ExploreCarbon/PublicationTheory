@@ -1,5 +1,5 @@
 <?php
-namespace SPW;
+namespace PublicationTheory;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -20,10 +20,10 @@ final class Log_Screen {
 	 */
 	public static function add_menu(): void {
 		add_management_page(
-			__( 'Workflow Log', 'spw' ),
-			__( 'Workflow Log', 'spw' ),
+			__( 'Workflow Log', 'publication-theory' ),
+			__( 'Workflow Log', 'publication-theory' ),
 			'manage_options',
-			'spw-workflow-log',
+			'pt-workflow-log',
 			array( __CLASS__, 'render' )
 		);
 	}
@@ -33,21 +33,21 @@ final class Log_Screen {
 	 */
 	public static function render(): void {
 		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_die( esc_html__( 'You do not have permission to view this page.', 'spw' ), '', array( 'response' => 403 ) );
+			wp_die( esc_html__( 'You do not have permission to view this page.', 'publication-theory' ), '', array( 'response' => 403 ) );
 		}
 		$entries = Log::entries();
-		echo '<div class="wrap"><h1>' . esc_html__( 'Workflow Log', 'spw' ) . '</h1>';
+		echo '<div class="wrap"><h1>' . esc_html__( 'Workflow Log', 'publication-theory' ) . '</h1>';
 		if ( ! $entries ) {
-			echo '<p>' . esc_html__( 'No workflow events recorded yet.', 'spw' ) . '</p></div>';
+			echo '<p>' . esc_html__( 'No workflow events recorded yet.', 'publication-theory' ) . '</p></div>';
 			return;
 		}
-		echo '<table class="widefat striped"><caption class="screen-reader-text">' . esc_html__( 'Recent workflow notifications, newest first', 'spw' ) . '</caption><thead><tr>';
+		echo '<table class="widefat striped"><caption class="screen-reader-text">' . esc_html__( 'Recent workflow notifications, newest first', 'publication-theory' ) . '</caption><thead><tr>';
 		$headings = array(
-			__( 'Time (UTC)', 'spw' ),
-			__( 'Post', 'spw' ),
-			__( 'Event', 'spw' ),
-			__( 'Status', 'spw' ),
-			__( 'Detail', 'spw' ),
+			__( 'Time (UTC)', 'publication-theory' ),
+			__( 'Post', 'publication-theory' ),
+			__( 'Event', 'publication-theory' ),
+			__( 'Status', 'publication-theory' ),
+			__( 'Detail', 'publication-theory' ),
 		);
 		foreach ( $headings as $heading ) {
 			echo '<th scope="col">' . esc_html( $heading ) . '</th>';

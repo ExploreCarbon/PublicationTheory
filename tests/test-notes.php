@@ -1,6 +1,6 @@
 <?php
 if ( ! defined( 'ABSPATH' ) && 'cli' !== PHP_SAPI ) { exit; }
-class SPW_Notes_Test extends WP_UnitTestCase {
+class PT_Notes_Test extends WP_UnitTestCase {
 
 	private $author;
 	private $author_b;
@@ -14,7 +14,7 @@ class SPW_Notes_Test extends WP_UnitTestCase {
 
 	public function tear_down() {
 		remove_all_filters( 'wp_update_comment_data' );
-		foreach ( array( 'spw_plain', 'spw_thing' ) as $type ) {
+		foreach ( array( 'pt_plain', 'pt_thing' ) as $type ) {
 			if ( post_type_exists( $type ) ) {
 				unregister_post_type( $type );
 			}
@@ -25,7 +25,7 @@ class SPW_Notes_Test extends WP_UnitTestCase {
 
 	private function pending_copy_with_notes( array $statuses ): array {
 		$live = self::factory()->post->create( array( 'post_author' => $this->author, 'post_status' => 'publish', 'post_content' => 'old' ) );
-		$copy = SPW\Staging::open_for( $live, $this->author );
+		$copy = PublicationTheory\Staging::open_for( $live, $this->author );
 		wp_update_post( array( 'ID' => $copy, 'post_status' => 'pending', 'post_content' => 'new' ) );
 		$ids    = array();
 		$parent = 0;
@@ -58,7 +58,7 @@ class SPW_Notes_Test extends WP_UnitTestCase {
 				'user_id'          => $this->author,
 			)
 		);
-		$this->assertSame( $live, SPW\Staging::approve( $copy ) );
+		$this->assertSame( $live, PublicationTheory\Staging::approve( $copy ) );
 		foreach ( array_merge( $ids, array( $reply ) ) as $id ) {
 			$this->assertSame( $live, (int) get_comment( $id )->comment_post_ID, "comment $id not moved" );
 		}
@@ -74,11 +74,11 @@ class SPW_Notes_Test extends WP_UnitTestCase {
 		};
 		add_filter( 'wp_update_comment_data', $filter );
 
-		$res = SPW\Staging::approve( $copy );
+		$res = PublicationTheory\Staging::approve( $copy );
 
 		$this->assertWPError( $res );
-		$this->assertSame( 'spw_notes_move_failed', $res->get_error_code() );
-		$this->assertArrayHasKey( 'spw_notes_move_failed', SPW\Admin_Post::error_messages() );
+		$this->assertSame( 'pt_notes_move_failed', $res->get_error_code() );
+		$this->assertArrayHasKey( 'pt_notes_move_failed', PublicationTheory\Admin_Post::error_messages() );
 		$this->assertNotNull( get_post( $copy ), 'copy must survive' );
 		$this->assertSame( $copy, (int) get_comment( $ids[1] )->comment_post_ID );
 		$this->assertSame( $copy, (int) get_comment( $ids[2] )->comment_post_ID, 'later notes intact' );
@@ -86,7 +86,7 @@ class SPW_Notes_Test extends WP_UnitTestCase {
 		$this->assertSame( 'new', get_post_field( 'post_content', $live ), 'merge already applied' );
 
 		remove_filter( 'wp_update_comment_data', $filter );
-		$this->assertSame( $live, SPW\Staging::approve( $copy ) );
+		$this->assertSame( $live, PublicationTheory\Staging::approve( $copy ) );
 		$this->assertNull( get_post( $copy ) );
 		foreach ( $ids as $id ) {
 			$this->assertSame( $live, (int) get_comment( $id )->comment_post_ID );
@@ -109,27 +109,27 @@ class SPW_Notes_Test extends WP_UnitTestCase {
 	}
 
 	public function test_notes_enabled_for_covered_types() {
-		register_post_type( 'spw_plain', array( 'public' => true, 'show_in_rest' => true, 'supports' => array( 'title', 'editor' ) ) );
+		register_post_type( 'pt_plain', array( 'public' => true, 'show_in_rest' => true, 'supports' => array( 'title', 'editor' ) ) );
 		register_post_type(
-			'spw_thing',
+			'pt_thing',
 			array(
 				'public'       => true,
 				'show_in_rest' => true,
 				'supports'     => array( 'title', 'editor' => array( 'default-mode' => 'text' ) ),
 			)
 		);
-		$this->assertContains( 'spw_plain', SPW\Types::covered() );
-		$this->assertContains( 'spw_thing', SPW\Types::covered() );
-		$this->assertFalse( $this->has_notes( 'spw_plain' ), 'precondition: no notes before enable' );
+		$this->assertContains( 'pt_plain', PublicationTheory\Types::covered() );
+		$this->assertContains( 'pt_thing', PublicationTheory\Types::covered() );
+		$this->assertFalse( $this->has_notes( 'pt_plain' ), 'precondition: no notes before enable' );
 
-		SPW\Notes::enable();
+		PublicationTheory\Notes::enable();
 
-		foreach ( SPW\Types::covered() as $type ) {
+		foreach ( PublicationTheory\Types::covered() as $type ) {
 			if ( post_type_supports( $type, 'editor' ) ) {
 				$this->assertTrue( $this->has_notes( $type ), "Notes not enabled for $type" );
 			}
 		}
-		$editor = get_all_post_type_supports( 'spw_thing' )['editor'];
+		$editor = get_all_post_type_supports( 'pt_thing' )['editor'];
 		$this->assertTrue( $editor[0]['notes'] );
 		$this->assertSame( 'text', $editor[1]['default-mode'] );
 	}
@@ -146,14 +146,14 @@ class SPW_Notes_Test extends WP_UnitTestCase {
 
 	public function test_notes_move_to_live_post_on_approve() {
 		$live = self::factory()->post->create( array( 'post_author' => $this->author, 'post_status' => 'publish' ) );
-		$copy = SPW\Staging::open_for( $live, $this->author );
+		$copy = PublicationTheory\Staging::open_for( $live, $this->author );
 		wp_set_current_user( $this->author );
 		$this->assertSame( 201, $this->add_note( $copy )->get_status() );
 		$this->assertSame( 201, $this->add_note( $copy )->get_status() );
 		wp_update_post( array( 'ID' => $copy, 'post_status' => 'pending' ) );
 		wp_set_current_user( self::factory()->user->create( array( 'role' => 'editor' ) ) );
 
-		$this->assertSame( $live, SPW\Staging::approve( $copy ) );
+		$this->assertSame( $live, PublicationTheory\Staging::approve( $copy ) );
 
 		$this->assertNull( get_post( $copy ) );
 		$notes = get_comments( array( 'post_id' => $live, 'type' => 'note', 'status' => 'all', 'fields' => 'ids' ) );
@@ -162,8 +162,8 @@ class SPW_Notes_Test extends WP_UnitTestCase {
 	}
 
 	public function test_notes_and_presence_are_registered_on_boot() {
-		$this->assertSame( 99, has_action( 'init', array( 'SPW\Notes', 'enable' ) ) );
-		$this->assertSame( 10, has_filter( 'heartbeat_received', array( 'SPW\Presence', 'filter_heartbeat' ) ) );
+		$this->assertSame( 99, has_action( 'init', array( 'PublicationTheory\Notes', 'enable' ) ) );
+		$this->assertSame( 10, has_filter( 'heartbeat_received', array( 'PublicationTheory\Presence', 'filter_heartbeat' ) ) );
 	}
 
 	public function test_author_can_add_note_on_own_draft() {
@@ -176,7 +176,7 @@ class SPW_Notes_Test extends WP_UnitTestCase {
 
 	public function test_author_can_add_note_on_own_staged_copy() {
 		$live = self::factory()->post->create( array( 'post_author' => $this->author, 'post_status' => 'publish' ) );
-		$copy = SPW\Staging::open_for( $live, $this->author );
+		$copy = PublicationTheory\Staging::open_for( $live, $this->author );
 		$this->assertIsInt( $copy );
 		wp_set_current_user( $this->author );
 		$this->assertSame( 201, $this->add_note( $copy )->get_status() );

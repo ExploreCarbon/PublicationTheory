@@ -1,5 +1,5 @@
 <?php
-namespace SPW;
+namespace PublicationTheory;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -26,11 +26,11 @@ final class Queue_Table extends \WP_List_Table {
 
 	public function get_columns() {
 		return array(
-			'title'     => __( 'Title', 'spw' ),
-			'type'      => __( 'Type', 'spw' ),
-			'author'    => __( 'Author', 'spw' ),
-			'submitted' => __( 'Submitted', 'spw' ),
-			'kind'      => __( 'Kind', 'spw' ),
+			'title'     => __( 'Title', 'publication-theory' ),
+			'type'      => __( 'Type', 'publication-theory' ),
+			'author'    => __( 'Author', 'publication-theory' ),
+			'submitted' => __( 'Submitted', 'publication-theory' ),
+			'kind'      => __( 'Kind', 'publication-theory' ),
 		);
 	}
 
@@ -61,7 +61,7 @@ final class Queue_Table extends \WP_List_Table {
 				'paged'          => $paged,
 				'orderby'        => $orderby,
 				'order'          => $order,
-				'spw_include_staged' => true,
+				'pt_include_staged' => true,
 			)
 		);
 		$this->items = $query->posts;
@@ -74,12 +74,12 @@ final class Queue_Table extends \WP_List_Table {
 	}
 
 	public function no_items() {
-		esc_html_e( 'Nothing is waiting for review.', 'spw' );
+		esc_html_e( 'Nothing is waiting for review.', 'publication-theory' );
 	}
 
 	protected function column_title( $item ) {
 		$title = get_the_title( $item );
-		$title = '' !== $title ? $title : __( '(no title)', 'spw' );
+		$title = '' !== $title ? $title : __( '(no title)', 'publication-theory' );
 		$link  = Staging::is_staged( (int) $item->ID ) ? Staging::review_url( (int) $item->ID ) : get_edit_post_link( $item, 'raw' );
 		if ( ! $link ) {
 			return '<strong>' . esc_html( $title ) . '</strong>';
@@ -89,8 +89,8 @@ final class Queue_Table extends \WP_List_Table {
 				'<a href="%s" aria-label="%s">%s</a>',
 				esc_url( $link ),
 				/* translators: %s: post title */
-				esc_attr( sprintf( __( 'Review "%s"', 'spw' ), $title ) ),
-				esc_html__( 'Review', 'spw' )
+				esc_attr( sprintf( __( 'Review "%s"', 'publication-theory' ), $title ) ),
+				esc_html__( 'Review', 'publication-theory' )
 			),
 		);
 		$object = get_post_type_object( $item->post_type );
@@ -105,28 +105,28 @@ final class Queue_Table extends \WP_List_Table {
 	 */
 	public static function send_back_form( \WP_Post $item, string $title ): string {
 		$id       = (int) $item->ID;
-		$field_id = 'spw-note-' . $id;
+		$field_id = 'pt-note-' . $id;
 		ob_start();
 		?>
-		<details class="spw-send-back">
+		<details class="pt-send-back">
 			<summary>
-				<?php esc_html_e( 'Send back', 'spw' ); ?>
+				<?php esc_html_e( 'Send back', 'publication-theory' ); ?>
 				<span class="screen-reader-text">
 					<?php
 					/* translators: %s: post title */
-					echo esc_html( sprintf( __( '"%s" to the author', 'spw' ), $title ) );
+					echo esc_html( sprintf( __( '"%s" to the author', 'publication-theory' ), $title ) );
 					?>
 				</span>
 			</summary>
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-				<input type="hidden" name="action" value="spw_send_back" />
+				<input type="hidden" name="action" value="pt_send_back" />
 				<input type="hidden" name="post_id" value="<?php echo esc_attr( (string) $id ); ?>" />
-				<?php wp_nonce_field( 'spw_send_back_' . $id ); ?>
+				<?php wp_nonce_field( 'pt_send_back_' . $id ); ?>
 				<p>
-					<label for="<?php echo esc_attr( $field_id ); ?>"><?php esc_html_e( 'Feedback for the author', 'spw' ); ?></label><br />
+					<label for="<?php echo esc_attr( $field_id ); ?>"><?php esc_html_e( 'Feedback for the author', 'publication-theory' ); ?></label><br />
 					<textarea id="<?php echo esc_attr( $field_id ); ?>" name="note" rows="3" cols="30" required></textarea>
 				</p>
-				<p><button type="submit" class="button button-small"><?php esc_html_e( 'Send back', 'spw' ); ?></button></p>
+				<p><button type="submit" class="button button-small"><?php esc_html_e( 'Send back', 'publication-theory' ); ?></button></p>
 			</form>
 		</details>
 		<?php
@@ -149,7 +149,7 @@ final class Queue_Table extends \WP_List_Table {
 			return '';
 		}
 		/* translators: %s: human-readable time difference */
-		return esc_html( sprintf( __( '%s ago', 'spw' ), human_time_diff( $gmt ) ) );
+		return esc_html( sprintf( __( '%s ago', 'publication-theory' ), human_time_diff( $gmt ) ) );
 	}
 
 	protected function column_kind( $item ) {

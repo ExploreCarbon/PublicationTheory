@@ -1,5 +1,5 @@
 <?php
-namespace SPW;
+namespace PublicationTheory;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -46,7 +46,7 @@ final class Workflow {
 		if ( $id && Staging::is_staged( $id ) && in_array( $new, array( 'publish', 'future', 'private' ), true ) ) {
 			$data['post_status'] = 'pending';
 			if ( $user > 0 ) {
-				set_transient( 'spw_copy_publish_blocked_' . $user, $id, MINUTE_IN_SECONDS );
+				set_transient( 'pt_copy_publish_blocked_' . $user, $id, MINUTE_IN_SECONDS );
 			}
 			return $data;
 		}
@@ -89,7 +89,7 @@ final class Workflow {
 			&& (int) $post->post_author !== $user && Caps::can_publish( $user, $post->post_type ) ) {
 			$actor = get_userdata( $user );
 			/* translators: %s: user display name */
-			Feedback::add_automatic( (int) $post->ID, $user, sprintf( __( 'Returned to draft by %s without a comment.', 'spw' ), $actor ? $actor->display_name : '' ) );
+			Feedback::add_automatic( (int) $post->ID, $user, sprintf( __( 'Returned to draft by %s without a comment.', 'publication-theory' ), $actor ? $actor->display_name : '' ) );
 			Mailer::notify( 'sent_back', $post->ID, $user );
 		}
 	}
@@ -102,18 +102,18 @@ final class Workflow {
 	public static function send_back( int $post_id, string $note ) {
 		$post = get_post( $post_id );
 		if ( ! $post ) {
-			return new \WP_Error( 'spw_not_found', __( 'Post not found.', 'spw' ), array( 'status' => 404 ) );
+			return new \WP_Error( 'pt_not_found', __( 'Post not found.', 'publication-theory' ), array( 'status' => 404 ) );
 		}
 		$object = get_post_type_object( $post->post_type );
 		$cap    = $object ? $object->cap->edit_others_posts : 'edit_others_posts';
 		if ( ! current_user_can( $cap ) ) {
-			return new \WP_Error( 'spw_forbidden', __( 'You cannot send this back.', 'spw' ), array( 'status' => 403 ) );
+			return new \WP_Error( 'pt_forbidden', __( 'You cannot send this back.', 'publication-theory' ), array( 'status' => 403 ) );
 		}
 		if ( ! Types::is_covered( $post->post_type ) ) {
-			return new \WP_Error( 'spw_not_covered', __( 'This content type is not covered by the workflow.', 'spw' ), array( 'status' => 400 ) );
+			return new \WP_Error( 'pt_not_covered', __( 'This content type is not covered by the workflow.', 'publication-theory' ), array( 'status' => 400 ) );
 		}
 		if ( 'pending' !== $post->post_status ) {
-			return new \WP_Error( 'spw_not_pending', __( 'Only pending posts can be sent back.', 'spw' ), array( 'status' => 400 ) );
+			return new \WP_Error( 'pt_not_pending', __( 'Only pending posts can be sent back.', 'publication-theory' ), array( 'status' => 400 ) );
 		}
 
 		$user     = get_current_user_id();
@@ -151,16 +151,16 @@ final class Workflow {
 	public static function submit( int $post_id ) {
 		$post = get_post( $post_id );
 		if ( ! $post ) {
-			return new \WP_Error( 'spw_not_found', __( 'Post not found.', 'spw' ), array( 'status' => 404 ) );
+			return new \WP_Error( 'pt_not_found', __( 'Post not found.', 'publication-theory' ), array( 'status' => 404 ) );
 		}
 		if ( ! current_user_can( 'edit_post', $post_id ) ) {
-			return new \WP_Error( 'spw_forbidden', __( 'You cannot submit this post.', 'spw' ), array( 'status' => 403 ) );
+			return new \WP_Error( 'pt_forbidden', __( 'You cannot submit this post.', 'publication-theory' ), array( 'status' => 403 ) );
 		}
 		if ( ! Types::is_covered( $post->post_type ) ) {
-			return new \WP_Error( 'spw_not_covered', __( 'This content type is not covered by the workflow.', 'spw' ), array( 'status' => 400 ) );
+			return new \WP_Error( 'pt_not_covered', __( 'This content type is not covered by the workflow.', 'publication-theory' ), array( 'status' => 400 ) );
 		}
 		if ( ! in_array( $post->post_status, array( 'draft', 'auto-draft' ), true ) ) {
-			return new \WP_Error( 'spw_not_draft', __( 'Only drafts can be submitted.', 'spw' ), array( 'status' => 400 ) );
+			return new \WP_Error( 'pt_not_draft', __( 'Only drafts can be submitted.', 'publication-theory' ), array( 'status' => 400 ) );
 		}
 
 		$result = wp_update_post(

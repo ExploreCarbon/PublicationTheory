@@ -1,5 +1,5 @@
 <?php
-namespace SPW;
+namespace PublicationTheory;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -43,7 +43,7 @@ final class Mailer {
 		 * @param string $event   Event.
 		 * @param int    $post_id Post ID.
 		 */
-		if ( ! apply_filters( 'spw_notify_enabled', true, $event, $post_id ) ) {
+		if ( ! apply_filters( 'pt_notify_enabled', true, $event, $post_id ) ) {
 			return;
 		}
 
@@ -55,7 +55,7 @@ final class Mailer {
 		 * @param string $event    Event.
 		 * @param int    $post_id  Post ID.
 		 */
-		$recipients = array_values( array_unique( array_map( 'intval', (array) apply_filters( 'spw_email_recipients', $recipients, $event, $post_id ) ) ) );
+		$recipients = array_values( array_unique( array_map( 'intval', (array) apply_filters( 'pt_email_recipients', $recipients, $event, $post_id ) ) ) );
 
 		$users = array();
 		foreach ( $recipients as $user_id ) {
@@ -81,7 +81,7 @@ final class Mailer {
 		 * @param string $event    Event.
 		 * @param int    $post_id  Post ID.
 		 */
-		$message = (array) apply_filters( 'spw_email_message', $message, $event, $post_id );
+		$message = (array) apply_filters( 'pt_email_message', $message, $event, $post_id );
 		$subject = (string) ( $message['subject'] ?? '' );
 		$body    = (string) ( $message['body'] ?? '' );
 
@@ -145,29 +145,29 @@ final class Mailer {
 	 */
 	private static function message( string $event, \WP_Post $post, int $actor_id ): array {
 		$labels = array(
-			'submitted'        => __( 'Review requested', 'spw' ),
-			'sent_back'        => __( 'Changes requested', 'spw' ),
-			'published'        => __( 'Published', 'spw' ),
-			'staged_submitted' => __( 'Update review requested', 'spw' ),
-			'staged_approved'  => __( 'Update approved', 'spw' ),
+			'submitted'        => __( 'Review requested', 'publication-theory' ),
+			'sent_back'        => __( 'Changes requested', 'publication-theory' ),
+			'published'        => __( 'Published', 'publication-theory' ),
+			'staged_submitted' => __( 'Update review requested', 'publication-theory' ),
+			'staged_approved'  => __( 'Update approved', 'publication-theory' ),
 		);
 		$label = $labels[ $event ] ?? $event;
 		$title = html_entity_decode( wp_strip_all_tags( get_the_title( $post ) ), ENT_QUOTES, 'UTF-8' );
 		$actor = get_userdata( $actor_id );
-		$name  = $actor ? $actor->display_name : __( 'Someone', 'spw' );
+		$name  = $actor ? $actor->display_name : __( 'Someone', 'publication-theory' );
 		$site  = wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES );
 
 		$lines = array(
 			sprintf( '%1$s: %2$s', $label, $title ),
 			/* translators: %s: user display name */
-			sprintf( __( 'By: %s', 'spw' ), $name ),
+			sprintf( __( 'By: %s', 'publication-theory' ), $name ),
 		);
 
 		if ( 'sent_back' === $event ) {
 			$latest = Feedback::latest( $post->ID );
 			if ( $latest ) {
 				$lines[] = '';
-				$lines[] = __( 'Editor feedback:', 'spw' );
+				$lines[] = __( 'Editor feedback:', 'publication-theory' );
 				$lines[] = (string) $latest['note'];
 			}
 		}
@@ -180,7 +180,7 @@ final class Mailer {
 		if ( $link ) {
 			$lines[] = '';
 			/* translators: %s: edit URL */
-			$lines[] = sprintf( __( 'Edit: %s', 'spw' ), $link );
+			$lines[] = sprintf( __( 'Edit: %s', 'publication-theory' ), $link );
 		}
 
 		return array(

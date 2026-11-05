@@ -1,5 +1,5 @@
 <?php
-namespace SPW;
+namespace PublicationTheory;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -8,7 +8,7 @@ defined( 'ABSPATH' ) || exit;
  */
 final class Log {
 
-	public const OPTION = 'spw_workflow_log';
+	public const OPTION = 'pt_workflow_log';
 	public const LIMIT  = 500;
 
 	/**

@@ -1,5 +1,5 @@
 <?php
-namespace SPW;
+namespace PublicationTheory;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -8,7 +8,7 @@ defined( 'ABSPATH' ) || exit;
  */
 final class Feedback {
 
-	public const META_KEY = '_spw_feedback';
+	public const META_KEY = '_pt_feedback';
 
 	/**
 	 * Append a feedback entry.
@@ -18,7 +18,7 @@ final class Feedback {
 	public static function add( int $post_id, int $editor_id, string $note ) {
 		$note = trim( sanitize_textarea_field( $note ) );
 		if ( '' === $note ) {
-			return new \WP_Error( 'spw_empty_note', __( 'Feedback note cannot be empty.', 'spw' ) );
+			return new \WP_Error( 'pt_empty_note', __( 'Feedback note cannot be empty.', 'publication-theory' ) );
 		}
 		return self::store( $post_id, $editor_id, $note );
 	}
@@ -48,7 +48,7 @@ final class Feedback {
 		// wp_slash: add_post_meta unslashes its input.
 		$meta_id = add_post_meta( $post_id, self::META_KEY, wp_slash( $entry ) );
 		if ( ! $meta_id ) {
-			return new \WP_Error( 'spw_feedback_failed', __( 'Could not save feedback.', 'spw' ) );
+			return new \WP_Error( 'pt_feedback_failed', __( 'Could not save feedback.', 'publication-theory' ) );
 		}
 		return (int) $meta_id;
 	}

@@ -1,5 +1,5 @@
 <?php
-namespace SPW;
+namespace PublicationTheory;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -23,7 +23,7 @@ final class Types {
 			)
 		);
 		$types = array_values( array_diff( array_keys( $types ), self::EXCLUDED ) );
-		$types = apply_filters( 'spw_covered_post_types', $types );
+		$types = apply_filters( 'pt_covered_post_types', $types );
 		return array_values( array_map( 'strval', (array) $types ) );
 	}
 

@@ -9,12 +9,12 @@ import { store as editorStore } from '@wordpress/editor';
 import FeedbackList from './feedback-list';
 
 const STATUS_LABELS = {
-	draft: __( 'Draft', 'spw' ),
-	'auto-draft': __( 'Draft', 'spw' ),
-	pending: __( 'Pending review', 'spw' ),
-	publish: __( 'Published', 'spw' ),
-	future: __( 'Scheduled', 'spw' ),
-	private: __( 'Private', 'spw' ),
+	draft: __( 'Draft', 'publication-theory' ),
+	'auto-draft': __( 'Draft', 'publication-theory' ),
+	pending: __( 'Pending review', 'publication-theory' ),
+	publish: __( 'Published', 'publication-theory' ),
+	future: __( 'Scheduled', 'publication-theory' ),
+	private: __( 'Private', 'publication-theory' ),
 };
 
 export default function Panel( { canPublish } ) {
@@ -38,7 +38,7 @@ export default function Panel( { canPublish } ) {
 	const [ error, setError ] = useState( '' );
 	const inFlight = useRef( false );
 
-	const base = `/spw/v1/posts/${ postId }`;
+	const base = `/publication-theory/v1/posts/${ postId }`;
 
 	const fetchFeedback = async () => {
 		try {
@@ -54,7 +54,7 @@ export default function Panel( { canPublish } ) {
 			return undefined;
 		}
 		let ignore = false;
-		apiFetch( { path: `/spw/v1/posts/${ postId }/feedback` } )
+		apiFetch( { path: `/publication-theory/v1/posts/${ postId }/feedback` } )
 			.then( ( result ) => {
 				if ( ! ignore ) {
 					setEntries( result );
@@ -80,7 +80,7 @@ export default function Panel( { canPublish } ) {
 		const type = await resolveSelect( coreStore ).getPostType( postType );
 		if ( ! type?.rest_base ) {
 			throw new Error(
-				__( 'Could not refresh the editor. Reload the page.', 'spw' )
+				__( 'Could not refresh the editor. Reload the page.', 'publication-theory' )
 			);
 		}
 		const record = await apiFetch( {
@@ -101,7 +101,7 @@ export default function Panel( { canPublish } ) {
 				await savePost();
 				if ( select( editorStore ).didPostSaveRequestFail() ) {
 					throw new Error(
-						__( 'Saving failed, so the post was not submitted. Try again.', 'spw' )
+						__( 'Saving failed, so the post was not submitted. Try again.', 'publication-theory' )
 					);
 				}
 			}
@@ -114,7 +114,7 @@ export default function Panel( { canPublish } ) {
 			} );
 		} catch ( e ) {
 			setError(
-				e?.message || __( 'Something went wrong. Please try again.', 'spw' )
+				e?.message || __( 'Something went wrong. Please try again.', 'publication-theory' )
 			);
 		} finally {
 			inFlight.current = false;
@@ -125,9 +125,9 @@ export default function Panel( { canPublish } ) {
 	const latest = entries[ 0 ];
 
 	return (
-		<div className="spw-workflow">
+		<div className="pt-workflow">
 			<p>
-				<strong>{ __( 'Status:', 'spw' ) }</strong>{ ' ' }
+				<strong>{ __( 'Status:', 'publication-theory' ) }</strong>{ ' ' }
 				{ STATUS_LABELS[ status ] || status }
 			</p>
 
@@ -151,15 +151,15 @@ export default function Panel( { canPublish } ) {
 							run(
 								'submit',
 								undefined,
-								__( 'Submitted for review.', 'spw' )
+								__( 'Submitted for review.', 'publication-theory' )
 							)
 						}
 					>
-						{ __( 'Submit for review', 'spw' ) }
+						{ __( 'Submit for review', 'publication-theory' ) }
 					</Button>
 					{ latest && (
 						<div style={ { marginTop: '16px' } }>
-							<strong>{ __( 'Latest feedback', 'spw' ) }</strong>
+							<strong>{ __( 'Latest feedback', 'publication-theory' ) }</strong>
 							<div style={ { whiteSpace: 'pre-wrap' } }>
 								{ latest.note }
 							</div>
@@ -171,7 +171,7 @@ export default function Panel( { canPublish } ) {
 			{ canPublish && (
 				<>
 					<TextareaControl
-						label={ __( 'Feedback for the author (required)', 'spw' ) }
+						label={ __( 'Feedback for the author (required)', 'publication-theory' ) }
 						value={ note }
 						onChange={ setNote }
 						rows={ 4 }
@@ -186,11 +186,11 @@ export default function Panel( { canPublish } ) {
 							run(
 								'send-back',
 								{ note: note.trim() },
-								__( 'Sent back to the author.', 'spw' )
+								__( 'Sent back to the author.', 'publication-theory' )
 							)
 						}
 					>
-						{ __( 'Send back', 'spw' ) }
+						{ __( 'Send back', 'publication-theory' ) }
 					</Button>
 				</>
 			) }
@@ -198,7 +198,7 @@ export default function Panel( { canPublish } ) {
 			<div style={ { marginTop: '16px' } }>
 				{ feedbackError ? (
 					<p role="alert">
-						{ __( 'Could not load feedback.', 'spw' ) }
+						{ __( 'Could not load feedback.', 'publication-theory' ) }
 					</p>
 				) : (
 					<FeedbackList entries={ entries } />

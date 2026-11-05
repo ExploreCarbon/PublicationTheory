@@ -1,6 +1,6 @@
 <?php
 if ( ! defined( 'ABSPATH' ) && 'cli' !== PHP_SAPI ) { exit; }
-class SPW_Admin_Post_Test extends WP_UnitTestCase {
+class PT_Admin_Post_Test extends WP_UnitTestCase {
 
 	public function tear_down() {
 		remove_all_filters( 'wp_redirect' );
@@ -16,8 +16,8 @@ class SPW_Admin_Post_Test extends WP_UnitTestCase {
 		$_POST    = array(
 			'post_id'          => (string) $post_id,
 			'note'             => wp_slash( $note ),
-			'_wpnonce'         => $good_nonce ? wp_create_nonce( 'spw_send_back_' . $post_id ) : 'bad',
-			'_wp_http_referer' => '/wp-admin/admin.php?page=spw-review-queue',
+			'_wpnonce'         => $good_nonce ? wp_create_nonce( 'pt_send_back_' . $post_id ) : 'bad',
+			'_wp_http_referer' => '/wp-admin/admin.php?page=pt-review-queue',
 		);
 		$_REQUEST = $_POST;
 	}
@@ -38,7 +38,7 @@ class SPW_Admin_Post_Test extends WP_UnitTestCase {
 			}
 		);
 		try {
-			SPW\Admin_Post::handle_send_back();
+			PublicationTheory\Admin_Post::handle_send_back();
 		} catch ( RuntimeException $e ) {
 			return $e->getMessage();
 		}
@@ -56,7 +56,7 @@ class SPW_Admin_Post_Test extends WP_UnitTestCase {
 		$a = self::factory()->post->create( array( 'post_status' => 'pending' ) );
 		$b = self::factory()->post->create( array( 'post_status' => 'pending' ) );
 		$this->post_as( self::factory()->user->create( array( 'role' => 'editor' ) ), $b, 'Note' );
-		$_POST['_wpnonce'] = wp_create_nonce( 'spw_send_back_' . $a );
+		$_POST['_wpnonce'] = wp_create_nonce( 'pt_send_back_' . $a );
 		$_REQUEST          = $_POST;
 		try {
 			$this->run_handler();
@@ -70,8 +70,8 @@ class SPW_Admin_Post_Test extends WP_UnitTestCase {
 		$id = self::factory()->post->create( array( 'post_status' => 'pending' ) );
 		$this->post_as( self::factory()->user->create( array( 'role' => 'author' ) ), $id, 'Note' );
 		$location = $this->run_handler();
-		$this->assertStringContainsString( 'spw_notice=error', $location );
-		$this->assertStringContainsString( 'spw_code=spw_forbidden', $location );
+		$this->assertStringContainsString( 'pt_notice=error', $location );
+		$this->assertStringContainsString( 'pt_code=pt_forbidden', $location );
 		$this->assertSame( 'pending', get_post_status( $id ) );
 	}
 
@@ -79,33 +79,33 @@ class SPW_Admin_Post_Test extends WP_UnitTestCase {
 		$id = self::factory()->post->create( array( 'post_status' => 'pending' ) );
 		$this->post_as( self::factory()->user->create( array( 'role' => 'editor' ) ), $id, 'Fix it' );
 		$location = $this->run_handler();
-		$this->assertStringContainsString( 'page=spw-review-queue', $location );
-		$this->assertStringContainsString( 'spw_notice=sent', $location );
+		$this->assertStringContainsString( 'page=pt-review-queue', $location );
+		$this->assertStringContainsString( 'pt_notice=sent', $location );
 		$this->assertSame( 'draft', get_post_status( $id ) );
-		$this->assertSame( 'Fix it', SPW\Feedback::latest( $id )['note'] );
+		$this->assertSame( 'Fix it', PublicationTheory\Feedback::latest( $id )['note'] );
 	}
 
 	public function test_empty_note_reports_error() {
 		$id = self::factory()->post->create( array( 'post_status' => 'pending' ) );
 		$this->post_as( self::factory()->user->create( array( 'role' => 'editor' ) ), $id, '   ' );
-		$this->assertStringContainsString( 'spw_code=spw_empty_note', $this->run_handler() );
+		$this->assertStringContainsString( 'pt_code=pt_empty_note', $this->run_handler() );
 		$this->assertSame( 'pending', get_post_status( $id ) );
 	}
 
 	public function test_queue_notice_allowlist_and_escaping() {
 		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
 		$_GET = array(
-			'spw_notice' => 'error',
-			'spw_code'   => '<script>alert(1)</script>',
+			'pt_notice' => 'error',
+			'pt_code'   => '<script>alert(1)</script>',
 		);
 		ob_start();
-		SPW\Queue::render();
+		PublicationTheory\Queue::render();
 		$html = ob_get_clean();
 		$this->assertStringNotContainsString( '<script>alert', $html );
 		$this->assertStringContainsString( 'notice-error', $html );
-		$_GET = array( 'spw_notice' => 'sent' );
+		$_GET = array( 'pt_notice' => 'sent' );
 		ob_start();
-		SPW\Queue::render();
+		PublicationTheory\Queue::render();
 		$this->assertStringContainsString( 'notice-success', ob_get_clean() );
 	}
 
@@ -113,10 +113,10 @@ class SPW_Admin_Post_Test extends WP_UnitTestCase {
 		$id = self::factory()->post->create( array( 'post_status' => 'pending' ) );
 		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
 		ob_start();
-		SPW\Queue::render();
+		PublicationTheory\Queue::render();
 		$html = ob_get_clean();
 		$this->assertStringContainsString( '<details', $html );
-		$this->assertStringContainsString( 'name="action" value="spw_send_back"', $html );
+		$this->assertStringContainsString( 'name="action" value="pt_send_back"', $html );
 		$this->assertStringContainsString( 'name="post_id" value="' . $id . '"', $html );
 		$this->assertStringContainsString( 'required', $html );
 	}

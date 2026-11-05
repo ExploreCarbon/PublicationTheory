@@ -1,6 +1,6 @@
 <?php
 if ( ! defined( 'ABSPATH' ) && 'cli' !== PHP_SAPI ) { exit; }
-class SPW_Dashboard_Test extends WP_UnitTestCase {
+class PT_Dashboard_Test extends WP_UnitTestCase {
 
 	public function set_up() {
 		parent::set_up();
@@ -9,7 +9,7 @@ class SPW_Dashboard_Test extends WP_UnitTestCase {
 
 	public function tear_down() {
 		unset( $GLOBALS['wp_meta_boxes'] );
-		delete_option( SPW\Log::OPTION );
+		delete_option( PublicationTheory\Log::OPTION );
 		parent::tear_down();
 	}
 
@@ -17,29 +17,29 @@ class SPW_Dashboard_Test extends WP_UnitTestCase {
 		wp_set_current_user( self::factory()->user->create( array( 'role' => $role ) ) );
 		set_current_screen( 'dashboard' );
 		$GLOBALS['wp_meta_boxes'] = array();
-		SPW\Dashboard::add_widgets();
+		PublicationTheory\Dashboard::add_widgets();
 		return array_keys( $GLOBALS['wp_meta_boxes']['dashboard']['normal']['core'] ?? array() );
 	}
 
 	public function test_widgets_by_role() {
 		$author = $this->widgets_for( 'author' );
-		$this->assertContains( 'spw_my_submissions', $author );
-		$this->assertNotContains( 'spw_review_queue', $author );
-		$this->assertNotContains( 'spw_recent_activity', $author );
+		$this->assertContains( 'pt_my_submissions', $author );
+		$this->assertNotContains( 'pt_review_queue', $author );
+		$this->assertNotContains( 'pt_recent_activity', $author );
 
 		$editor = $this->widgets_for( 'editor' );
-		$this->assertContains( 'spw_review_queue', $editor );
-		$this->assertNotContains( 'spw_recent_activity', $editor );
+		$this->assertContains( 'pt_review_queue', $editor );
+		$this->assertNotContains( 'pt_recent_activity', $editor );
 
 		$admin = $this->widgets_for( 'administrator' );
-		$this->assertContains( 'spw_recent_activity', $admin );
+		$this->assertContains( 'pt_recent_activity', $admin );
 	}
 
 	public function test_queue_widget_lists_pending_escaped() {
 		wp_set_current_user( self::factory()->user->create( array( 'role' => 'editor' ) ) );
 		self::factory()->post->create( array( 'post_status' => 'pending', 'post_title' => 'Alpha <script>x</script>' ) );
 		ob_start();
-		SPW\Dashboard::render_queue();
+		PublicationTheory\Dashboard::render_queue();
 		$html = ob_get_clean();
 		$this->assertStringContainsString( '1 item waiting', $html );
 		$this->assertStringNotContainsString( '<script>', $html );
@@ -48,7 +48,7 @@ class SPW_Dashboard_Test extends WP_UnitTestCase {
 	public function test_queue_widget_empty() {
 		wp_set_current_user( self::factory()->user->create( array( 'role' => 'editor' ) ) );
 		ob_start();
-		SPW\Dashboard::render_queue();
+		PublicationTheory\Dashboard::render_queue();
 		$this->assertStringContainsString( 'Nothing is waiting', ob_get_clean() );
 	}
 
@@ -56,7 +56,7 @@ class SPW_Dashboard_Test extends WP_UnitTestCase {
 		wp_set_current_user( self::factory()->user->create( array( 'role' => 'author' ) ) );
 		self::factory()->post->create( array( 'post_status' => 'pending' ) );
 		ob_start();
-		SPW\Dashboard::render_queue();
+		PublicationTheory\Dashboard::render_queue();
 		$this->assertSame( '', ob_get_clean() );
 	}
 
@@ -67,10 +67,10 @@ class SPW_Dashboard_Test extends WP_UnitTestCase {
 		$back = self::factory()->post->create( array( 'post_author' => $me, 'post_status' => 'draft', 'post_title' => 'Mine back' ) );
 		self::factory()->post->create( array( 'post_author' => $me, 'post_status' => 'draft', 'post_title' => 'Plain draft' ) );
 		self::factory()->post->create( array( 'post_author' => $other, 'post_status' => 'pending', 'post_title' => 'Theirs' ) );
-		SPW\Feedback::add( $back, self::factory()->user->create( array( 'role' => 'editor' ) ), 'Tighten the intro' );
+		PublicationTheory\Feedback::add( $back, self::factory()->user->create( array( 'role' => 'editor' ) ), 'Tighten the intro' );
 		wp_set_current_user( $me );
 		ob_start();
-		SPW\Dashboard::render_submissions();
+		PublicationTheory\Dashboard::render_submissions();
 		$html = ob_get_clean();
 		$this->assertStringContainsString( 'Mine pending', $html );
 		$this->assertStringContainsString( 'In review', $html );
@@ -81,10 +81,10 @@ class SPW_Dashboard_Test extends WP_UnitTestCase {
 	}
 
 	public function test_activity_widget_shows_log_for_admin() {
-		SPW\Log::record( 0, 'submitted', 'failed', 'x' );
+		PublicationTheory\Log::record( 0, 'submitted', 'failed', 'x' );
 		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
 		ob_start();
-		SPW\Dashboard::render_activity();
+		PublicationTheory\Dashboard::render_activity();
 		$html = ob_get_clean();
 		$this->assertStringContainsString( 'submitted', $html );
 		$this->assertStringContainsString( 'failed', $html );

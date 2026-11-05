@@ -3,7 +3,7 @@ import { __, sprintf } from '@wordpress/i18n';
 import { store as noticesStore } from '@wordpress/notices';
 import { store as editorStore } from '@wordpress/editor';
 
-const NOTICE_ID = 'spw-presence';
+const NOTICE_ID = 'pt-presence';
 let lastNames = '';
 
 function names( users ) {
@@ -35,12 +35,12 @@ export function renderPresence( users ) {
 		users.length === 1
 			? sprintf(
 					/* translators: %s: user display name. */
-					__( '%s is also editing this item.', 'spw' ),
+					__( '%s is also editing this item.', 'publication-theory' ),
 					current
 			  )
 			: sprintf(
 					/* translators: %s: comma separated user names. */
-					__( '%s are also editing this item.', 'spw' ),
+					__( '%s are also editing this item.', 'publication-theory' ),
 					current
 			  );
 	createNotice( 'warning', message, {
@@ -59,15 +59,15 @@ export default function initPresence() {
 	if ( ! $ ) {
 		return;
 	}
-	$( document ).on( 'heartbeat-send.spw-presence', ( event, data ) => {
+	$( document ).on( 'heartbeat-send.pt-presence', ( event, data ) => {
 		const postId = select( editorStore ).getCurrentPostId();
 		if ( postId ) {
-			data.spw_presence = { post_id: postId };
+			data.pt_presence = { post_id: postId };
 		}
 	} );
-	$( document ).on( 'heartbeat-tick.spw-presence', ( event, data ) => {
-		if ( data && data.spw_presence ) {
-			renderPresence( data.spw_presence.users || [] );
+	$( document ).on( 'heartbeat-tick.pt-presence', ( event, data ) => {
+		if ( data && data.pt_presence ) {
+			renderPresence( data.pt_presence.users || [] );
 		}
 	} );
 }

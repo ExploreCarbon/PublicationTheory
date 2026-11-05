@@ -1,5 +1,5 @@
 <?php
-namespace SPW;
+namespace PublicationTheory;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -24,7 +24,7 @@ final class Rest {
 			'sanitize_callback' => 'absint',
 		);
 		register_rest_route(
-			'spw/v1',
+			'publication-theory/v1',
 			'/posts/(?P<id>\d+)/send-back',
 			array(
 				'methods'             => 'POST',
@@ -41,7 +41,7 @@ final class Rest {
 			)
 		);
 		register_rest_route(
-			'spw/v1',
+			'publication-theory/v1',
 			'/posts/(?P<id>\d+)/feedback',
 			array(
 				'methods'             => 'GET',
@@ -51,7 +51,7 @@ final class Rest {
 			)
 		);
 		register_rest_route(
-			'spw/v1',
+			'publication-theory/v1',
 			'/posts/(?P<id>\d+)/submit',
 			array(
 				'methods'             => 'POST',
@@ -68,7 +68,7 @@ final class Rest {
 	public static function can_send_back( \WP_REST_Request $request ) {
 		$post = get_post( (int) $request['id'] );
 		if ( ! $post ) {
-			return new \WP_Error( 'rest_post_invalid_id', __( 'Invalid post ID.', 'spw' ), array( 'status' => 404 ) );
+			return new \WP_Error( 'rest_post_invalid_id', __( 'Invalid post ID.', 'publication-theory' ), array( 'status' => 404 ) );
 		}
 		$object = get_post_type_object( $post->post_type );
 		if ( $object && current_user_can( $object->cap->edit_others_posts ) ) {
@@ -83,7 +83,7 @@ final class Rest {
 	public static function can_submit( \WP_REST_Request $request ) {
 		$post = get_post( (int) $request['id'] );
 		if ( ! $post ) {
-			return new \WP_Error( 'rest_post_invalid_id', __( 'Invalid post ID.', 'spw' ), array( 'status' => 404 ) );
+			return new \WP_Error( 'rest_post_invalid_id', __( 'Invalid post ID.', 'publication-theory' ), array( 'status' => 404 ) );
 		}
 		return current_user_can( 'edit_post', $post->ID ) ? true : self::forbidden();
 	}
@@ -98,7 +98,7 @@ final class Rest {
 		}
 		$post = get_post( $id );
 		if ( ! $post || ! Types::is_covered( $post->post_type ) ) {
-			return new \WP_Error( 'rest_post_invalid_id', __( 'Invalid post ID.', 'spw' ), array( 'status' => 404 ) );
+			return new \WP_Error( 'rest_post_invalid_id', __( 'Invalid post ID.', 'publication-theory' ), array( 'status' => 404 ) );
 		}
 		return true;
 	}
@@ -127,7 +127,7 @@ final class Rest {
 	private static function forbidden(): \WP_Error {
 		return new \WP_Error(
 			'rest_forbidden',
-			__( 'Sorry, you are not allowed to do that.', 'spw' ),
+			__( 'Sorry, you are not allowed to do that.', 'publication-theory' ),
 			array( 'status' => is_user_logged_in() ? 403 : 401 )
 		);
 	}

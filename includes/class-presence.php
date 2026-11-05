@@ -1,5 +1,5 @@
 <?php
-namespace SPW;
+namespace PublicationTheory;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -24,10 +24,10 @@ final class Presence {
 	public static function filter_heartbeat( $response, $data ): array {
 		$response = (array) $response;
 		$data     = (array) $data;
-		if ( empty( $data['spw_presence'] ) || ! is_array( $data['spw_presence'] ) ) {
+		if ( empty( $data['pt_presence'] ) || ! is_array( $data['pt_presence'] ) ) {
 			return $response;
 		}
-		$post_id = absint( $data['spw_presence']['post_id'] ?? 0 );
+		$post_id = absint( $data['pt_presence']['post_id'] ?? 0 );
 		if ( $post_id <= 0 || ! get_post( $post_id ) || ! current_user_can( 'edit_post', $post_id ) ) {
 			return $response;
 		}
@@ -45,7 +45,7 @@ final class Presence {
 			}
 		}
 
-		$response['spw_presence'] = array(
+		$response['pt_presence'] = array(
 			'post_id' => $post_id,
 			'users'   => $users,
 		);

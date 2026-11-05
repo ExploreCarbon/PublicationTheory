@@ -1,5 +1,5 @@
 <?php
-namespace SPW;
+namespace PublicationTheory;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -8,7 +8,7 @@ defined( 'ABSPATH' ) || exit;
  */
 final class Editor_Assets {
 
-	public const HANDLE = 'spw-workflow';
+	public const HANDLE = 'pt-workflow';
 
 	/**
 	 * Register hooks.
@@ -27,22 +27,22 @@ final class Editor_Assets {
 			return;
 		}
 
-		$dir        = (string) apply_filters( 'spw_build_dir', SPW_DIR . 'build/' );
+		$dir        = (string) apply_filters( 'pt_build_dir', PT_DIR . 'build/' );
 		$asset_file = $dir . 'index.asset.php';
 		if ( ! is_readable( $asset_file ) || ! is_readable( $dir . 'index.js' ) ) {
 			return;
 		}
 		$asset   = require $asset_file;
 		$deps    = $asset['dependencies'] ?? array();
-		$version = $asset['version'] ?? SPW_VERSION;
+		$version = $asset['version'] ?? PT_VERSION;
 
-		wp_enqueue_script( self::HANDLE, SPW_URL . 'build/index.js', $deps, $version, true );
-		wp_set_script_translations( self::HANDLE, 'spw' );
+		wp_enqueue_script( self::HANDLE, PT_URL . 'build/index.js', $deps, $version, true );
+		wp_set_script_translations( self::HANDLE, 'publication-theory' );
 
 		$config = array(
 			'canPublish' => Caps::can_publish( get_current_user_id(), $type ),
 			'postType'   => $type,
 		);
-		wp_add_inline_script( self::HANDLE, 'window.spwWorkflow = ' . wp_json_encode( $config ) . ';', 'before' );
+		wp_add_inline_script( self::HANDLE, 'window.ptWorkflow = ' . wp_json_encode( $config ) . ';', 'before' );
 	}
 }

@@ -1,5 +1,5 @@
 <?php
-namespace SPW;
+namespace PublicationTheory;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -7,13 +7,13 @@ defined( 'ABSPATH' ) || exit;
  * Staged edits to live content (Phase 1b).
  *
  * A non-publisher never writes to a live (publish/future) covered post. Instead they edit a
- * staged copy: a separate draft post of the same type carrying meta `_spw_staged_for` = live ID.
+ * staged copy: a separate draft post of the same type carrying meta `_pt_staged_for` = live ID.
  * Editors approve (merge into live, keeping a core revision) or send back.
  */
 final class Staging {
 
-	public const META = '_spw_staged_for';
-	public const BASE = '_spw_base';
+	public const META = '_pt_staged_for';
+	public const BASE = '_pt_base';
 
 	private const LIVE_STATUSES = array( 'publish', 'future' );
 	private const OPEN_STATUSES = array( 'draft', 'pending' );
@@ -64,11 +64,11 @@ final class Staging {
 		add_filter( 'page_row_actions', array( __CLASS__, 'row_actions' ), 10, 2 );
 		add_action( 'admin_bar_menu', array( __CLASS__, 'admin_bar' ), 90 );
 		add_action( 'load-post.php', array( __CLASS__, 'on_load_post' ), 1 );
-		add_action( 'admin_post_spw_open_staged', array( __CLASS__, 'handle_open' ) );
+		add_action( 'admin_post_pt_open_staged', array( __CLASS__, 'handle_open' ) );
 
 		add_action( 'wp_trash_post', array( __CLASS__, 'on_trash_live' ) );
 		add_action( 'before_delete_post', array( __CLASS__, 'on_delete_live' ) );
-		add_filter( 'spw_queue_item_kind', array( __CLASS__, 'kind' ), 10, 2 );
+		add_filter( 'pt_queue_item_kind', array( __CLASS__, 'kind' ), 10, 2 );
 		add_action( 'admin_notices', array( __CLASS__, 'admin_notice' ) );
 		add_action( 'enqueue_block_editor_assets', array( __CLASS__, 'editor_notice' ) );
 	}
@@ -143,7 +143,7 @@ final class Staging {
 				'numberposts'        => 1,
 				'orderby'            => 'ID',
 				'order'              => 'ASC',
-				'spw_include_staged' => true,
+				'pt_include_staged' => true,
 			)
 		);
 		return $ids ? (int) $ids[0] : 0;
@@ -157,16 +157,16 @@ final class Staging {
 	public static function open_for( int $live_id, int $author_id ) {
 		$live = get_post( $live_id );
 		if ( ! $live || ! self::is_live( $live ) ) {
-			return new \WP_Error( 'spw_not_live', __( 'Only published content can be staged.', 'spw' ), array( 'status' => 400 ) );
+			return new \WP_Error( 'pt_not_live', __( 'Only published content can be staged.', 'publication-theory' ), array( 'status' => 400 ) );
 		}
 		if ( ! self::can_stage( $author_id, $live_id ) ) {
-			return new \WP_Error( 'spw_forbidden', __( 'You cannot edit this item.', 'spw' ), array( 'status' => 403 ) );
+			return new \WP_Error( 'pt_forbidden', __( 'You cannot edit this item.', 'publication-theory' ), array( 'status' => 403 ) );
 		}
 
 		$existing = self::find_copy( $live_id );
 		if ( $existing ) {
 			if ( (int) get_post_field( 'post_author', $existing ) !== $author_id ) {
-				return new \WP_Error( 'spw_copy_locked', self::locked_message( $existing ), array( 'status' => 409 ) );
+				return new \WP_Error( 'pt_copy_locked', self::locked_message( $existing ), array( 'status' => 409 ) );
 			}
 			return $existing;
 		}
@@ -214,18 +214,18 @@ final class Staging {
 		$copy    = get_post( $copy_id );
 		$live_id = $copy ? self::live_id( $copy_id ) : null;
 		if ( ! $copy || ! $live_id ) {
-			return new \WP_Error( 'spw_not_staged', __( 'This is not a staged edit.', 'spw' ), array( 'status' => 400 ) );
+			return new \WP_Error( 'pt_not_staged', __( 'This is not a staged edit.', 'publication-theory' ), array( 'status' => 400 ) );
 		}
 		$object = get_post_type_object( $copy->post_type );
 		if ( ! $object || ! current_user_can( $object->cap->edit_others_posts ) ) {
-			return new \WP_Error( 'spw_forbidden', __( 'You cannot approve this.', 'spw' ), array( 'status' => 403 ) );
+			return new \WP_Error( 'pt_forbidden', __( 'You cannot approve this.', 'publication-theory' ), array( 'status' => 403 ) );
 		}
 		$live = get_post( $live_id );
 		if ( ! $live || $live->post_type !== $copy->post_type || ! self::is_live( $live ) ) {
-			return new \WP_Error( 'spw_live_missing', __( 'The live item no longer exists.', 'spw' ), array( 'status' => 409 ) );
+			return new \WP_Error( 'pt_live_missing', __( 'The live item no longer exists.', 'publication-theory' ), array( 'status' => 409 ) );
 		}
 		if ( 'pending' !== $copy->post_status ) {
-			return new \WP_Error( 'spw_not_pending', __( 'Only pending items can be approved.', 'spw' ), array( 'status' => 400 ) );
+			return new \WP_Error( 'pt_not_pending', __( 'Only pending items can be approved.', 'publication-theory' ), array( 'status' => 400 ) );
 		}
 
 		$actor     = get_current_user_id();
@@ -302,7 +302,7 @@ final class Staging {
 					continue;
 				}
 				if ( ! add_post_meta( $live_id, Feedback::META_KEY, wp_slash( $entry ) ) ) {
-					return new \WP_Error( 'spw_feedback_move_failed', __( 'Feedback could not be moved to the live item. Nothing was deleted; try approving again.', 'spw' ), array( 'status' => 500 ) );
+					return new \WP_Error( 'pt_feedback_move_failed', __( 'Feedback could not be moved to the live item. Nothing was deleted; try approving again.', 'publication-theory' ), array( 'status' => 500 ) );
 				}
 			}
 		} finally {
@@ -321,16 +321,16 @@ final class Staging {
 		$copy    = get_post( $copy_id );
 		$live_id = $copy ? self::live_id( $copy_id ) : null;
 		if ( ! $copy || ! $live_id ) {
-			return new \WP_Error( 'spw_not_staged', __( 'This is not a staged edit.', 'spw' ), array( 'status' => 400 ) );
+			return new \WP_Error( 'pt_not_staged', __( 'This is not a staged edit.', 'publication-theory' ), array( 'status' => 400 ) );
 		}
 		$user   = get_current_user_id();
 		$object = get_post_type_object( $copy->post_type );
 		$editor = $object && current_user_can( $object->cap->edit_others_posts );
 		if ( $user <= 0 || ( ! $editor && (int) $copy->post_author !== $user ) ) {
-			return new \WP_Error( 'spw_forbidden', __( 'You cannot discard this.', 'spw' ), array( 'status' => 403 ) );
+			return new \WP_Error( 'pt_forbidden', __( 'You cannot discard this.', 'publication-theory' ), array( 'status' => 403 ) );
 		}
 		if ( ! wp_delete_post( $copy_id, true ) ) {
-			return new \WP_Error( 'spw_failed', __( 'Could not discard this.', 'spw' ), array( 'status' => 500 ) );
+			return new \WP_Error( 'pt_failed', __( 'Could not discard this.', 'publication-theory' ), array( 'status' => 500 ) );
 		}
 		return (int) $live_id;
 	}
@@ -339,13 +339,13 @@ final class Staging {
 	 * Discard form markup (POST, nonce'd).
 	 */
 	public static function discard_form( int $copy_id ): string {
-		$confirm = __( 'Discard the proposed version? It and its notes are deleted permanently; the live item is unchanged.', 'spw' );
-		return '<form method="post" class="spw-discard" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" onsubmit="return window.confirm(' . esc_attr( wp_json_encode( $confirm ) ) . ');">'
-			. '<input type="hidden" name="action" value="spw_discard_staged" />'
+		$confirm = __( 'Discard the proposed version? It and its notes are deleted permanently; the live item is unchanged.', 'publication-theory' );
+		return '<form method="post" class="pt-discard" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" onsubmit="return window.confirm(' . esc_attr( wp_json_encode( $confirm ) ) . ');">'
+			. '<input type="hidden" name="action" value="pt_discard_staged" />'
 			. '<input type="hidden" name="post_id" value="' . esc_attr( (string) $copy_id ) . '" />'
-			. wp_nonce_field( 'spw_discard_staged_' . $copy_id, '_wpnonce', true, false )
-			. '<p>' . esc_html__( 'Discarding deletes the proposed version and its notes permanently. The live item is not changed.', 'spw' ) . '</p>'
-			. '<p><button type="submit" class="button">' . esc_html__( 'Discard staged copy', 'spw' ) . '</button></p></form>';
+			. wp_nonce_field( 'pt_discard_staged_' . $copy_id, '_wpnonce', true, false )
+			. '<p>' . esc_html__( 'Discarding deletes the proposed version and its notes permanently. The live item is not changed.', 'publication-theory' ) . '</p>'
+			. '<p><button type="submit" class="button">' . esc_html__( 'Discard staged copy', 'publication-theory' ) . '</button></p></form>';
 	}
 
 	/**
@@ -354,7 +354,7 @@ final class Staging {
 	public static function locked_message( int $copy_id ): string {
 		$holder = get_userdata( (int) get_post_field( 'post_author', $copy_id ) );
 		/* translators: %s: user display name */
-		return sprintf( __( 'This item is already being edited by %s; ask an Editor to discard that copy.', 'spw' ), $holder ? $holder->display_name : __( 'another user', 'spw' ) );
+		return sprintf( __( 'This item is already being edited by %s; ask an Editor to discard that copy.', 'publication-theory' ), $holder ? $holder->display_name : __( 'another user', 'publication-theory' ) );
 	}
 
 	/**
@@ -369,7 +369,7 @@ final class Staging {
 		}
 		$status = isset( $request['status'] ) ? (string) $request['status'] : (string) ( $prepared->post_status ?? '' );
 		if ( self::is_staged( (int) $prepared->ID ) && in_array( $status, array( 'publish', 'future', 'private' ), true ) ) {
-			return new \WP_Error( 'spw_use_review_screen', __( 'This is a proposed version. Use Approve on the review screen.', 'spw' ), array( 'status' => 409 ) );
+			return new \WP_Error( 'pt_use_review_screen', __( 'This is a proposed version. Use Approve on the review screen.', 'publication-theory' ), array( 'status' => 409 ) );
 		}
 		return $prepared;
 	}
@@ -400,7 +400,7 @@ final class Staging {
 				if ( is_wp_error( $updated ) || false === $updated ) {
 					wp_update_comment_count( $live_id );
 					wp_update_comment_count( $copy_id );
-					return new \WP_Error( 'spw_notes_move_failed', __( 'The notes could not be moved to the live item. Nothing was deleted; try approving again.', 'spw' ), array( 'status' => 500 ) );
+					return new \WP_Error( 'pt_notes_move_failed', __( 'The notes could not be moved to the live item. Nothing was deleted; try approving again.', 'publication-theory' ), array( 'status' => 500 ) );
 				}
 			}
 		}
@@ -414,7 +414,7 @@ final class Staging {
 	 */
 	private static function syncable_key( string $key ): bool {
 		return ! in_array( $key, self::SKIP_META, true )
-			&& 0 !== strpos( $key, '_spw_' )
+			&& 0 !== strpos( $key, '_pt_' )
 			&& 0 !== strpos( $key, '_wp_trash_meta_' );
 	}
 
@@ -674,7 +674,7 @@ final class Staging {
 		if ( ! $post ) {
 			return false;
 		}
-		if ( 0 === strpos( $key, '_spw_' ) ) {
+		if ( 0 === strpos( $key, '_pt_' ) ) {
 			// Workflow-internal keys: never writable by non-publishers on markers, nor on live posts.
 			return ! Caps::can_publish( $user, $post->post_type )
 				&& ( self::META === $key || self::BASE === $key || self::restricted( $user, $post ) );
@@ -684,10 +684,10 @@ final class Staging {
 
 	/**
 	 * Housekeeping meta that a non-publisher's request may still write on live posts.
-	 * Entries ending in "_" are prefixes. `_spw_*` is never allowed.
+	 * Entries ending in "_" are prefixes. `_pt_*` is never allowed.
 	 */
 	public static function allowed_live_key( string $key ): bool {
-		if ( 0 === strpos( $key, '_spw_' ) ) {
+		if ( 0 === strpos( $key, '_pt_' ) ) {
 			return false;
 		}
 		$allowed = array( '_oembed_', '_encloseme', '_pingme', '_edit_lock', '_edit_last', '_wp_old_slug', '_wp_desired_post_slug', '_wp_trash_meta_' );
@@ -696,7 +696,7 @@ final class Staging {
 		 *
 		 * @param string[] $allowed Keys and prefixes.
 		 */
-		$allowed = (array) apply_filters( 'spw_allowed_live_meta_keys', $allowed );
+		$allowed = (array) apply_filters( 'pt_allowed_live_meta_keys', $allowed );
 		foreach ( $allowed as $entry ) {
 			$entry = (string) $entry;
 			if ( '' === $entry ) {
@@ -875,13 +875,13 @@ final class Staging {
 	}
 
 	/**
-	 * pre_get_posts: exclude copies from every query unless it opts in with spw_include_staged.
+	 * pre_get_posts: exclude copies from every query unless it opts in with pt_include_staged.
 	 * Lookups by explicit ID (p / page_id) are left alone; post status protects copies there.
 	 *
 	 * @param \WP_Query $query Query.
 	 */
 	public static function hide_copies( $query ): void {
-		if ( ! $query instanceof \WP_Query || $query->get( 'spw_include_staged' ) || $query->get( 'spw_staged_hidden' ) ) {
+		if ( ! $query instanceof \WP_Query || $query->get( 'pt_include_staged' ) || $query->get( 'pt_staged_hidden' ) ) {
 			return;
 		}
 		if ( (int) $query->get( 'p' ) > 0 || (int) $query->get( 'page_id' ) > 0 || (int) $query->get( 'attachment_id' ) > 0 ) {
@@ -891,7 +891,7 @@ final class Staging {
 			return;
 		}
 		$query->set( 'meta_query', self::with_clause( $query->get( 'meta_query' ) ) );
-		$query->set( 'spw_staged_hidden', true );
+		$query->set( 'pt_staged_hidden', true );
 	}
 
 	/**
@@ -901,9 +901,9 @@ final class Staging {
 	 */
 	public static function hide_in_args( $args ): array {
 		$args = (array) $args;
-		unset( $args['spw_include_staged'] );
+		unset( $args['pt_include_staged'] );
 		$args['meta_query']        = self::with_clause( $args['meta_query'] ?? array() ); // phpcs:ignore WordPress.DB.SlowDBQuery
-		$args['spw_staged_hidden'] = true;
+		$args['pt_staged_hidden'] = true;
 		return $args;
 	}
 
@@ -934,12 +934,12 @@ final class Staging {
 		return wp_nonce_url(
 			add_query_arg(
 				array(
-					'action'  => 'spw_open_staged',
+					'action'  => 'pt_open_staged',
 					'post_id' => $live_id,
 				),
 				admin_url( 'admin-post.php' )
 			),
-			'spw_open_staged_' . $live_id
+			'pt_open_staged_' . $live_id
 		);
 	}
 
@@ -967,8 +967,8 @@ final class Staging {
 			'<a href="%s" aria-label="%s">%s</a>',
 			esc_url( self::open_url( (int) $post->ID ) ),
 			/* translators: %s: post title */
-			esc_attr( sprintf( __( 'Edit "%s" (changes go to review)', 'spw' ), $title ) ),
-			esc_html__( 'Edit', 'spw' )
+			esc_attr( sprintf( __( 'Edit "%s" (changes go to review)', 'publication-theory' ), $title ) ),
+			esc_html__( 'Edit', 'publication-theory' )
 		);
 		return $actions;
 	}
@@ -989,7 +989,7 @@ final class Staging {
 		$bar->add_node(
 			array(
 				'id'    => 'edit',
-				'title' => esc_html__( 'Edit', 'spw' ),
+				'title' => esc_html__( 'Edit', 'publication-theory' ),
 				'href'  => self::open_url( (int) $post->ID ),
 			)
 		);
@@ -1006,20 +1006,20 @@ final class Staging {
 			return;
 		}
 		$copy  = self::find_copy( $post_id );
-		$title = esc_html__( 'Edit live content', 'spw' );
+		$title = esc_html__( 'Edit live content', 'publication-theory' );
 		if ( $copy && (int) get_post_field( 'post_author', $copy ) !== get_current_user_id() ) {
 			wp_die( '<h1>' . $title . '</h1><p>' . esc_html( self::locked_message( $copy ) ) . '</p>', $title, array( 'response' => 409 ) ); // phpcs:ignore WordPress.Security.EscapeOutput -- escaped parts.
 		}
 		if ( $copy ) {
-			$state   = 'pending' === get_post_status( $copy ) ? __( 'Your proposed changes are waiting for review.', 'spw' ) : __( 'You have a proposed version of this item in progress.', 'spw' );
+			$state   = 'pending' === get_post_status( $copy ) ? __( 'Your proposed changes are waiting for review.', 'publication-theory' ) : __( 'You have a proposed version of this item in progress.', 'publication-theory' );
 			$message = '<h1>' . $title . '</h1><p>' . esc_html( $state ) . '</p>'
-				. '<p><a class="button button-primary" href="' . esc_url( admin_url( 'post.php?post=' . $copy . '&action=edit' ) ) . '">' . esc_html__( 'Continue editing your copy', 'spw' ) . '</a></p>'
+				. '<p><a class="button button-primary" href="' . esc_url( admin_url( 'post.php?post=' . $copy . '&action=edit' ) ) . '">' . esc_html__( 'Continue editing your copy', 'publication-theory' ) . '</a></p>'
 				. self::discard_form( $copy );
 			wp_die( $message, $title, array( 'response' => 200 ) ); // phpcs:ignore WordPress.Security.EscapeOutput -- escaped parts.
 		}
-		$message = '<h1>' . esc_html__( 'Edit live content', 'spw' ) . '</h1><p>' . esc_html__( 'This item is live. Your changes will be saved as a copy and sent to an editor for review.', 'spw' ) . '</p>'
-			. '<p><a class="button button-primary" href="' . esc_url( self::open_url( $post_id ) ) . '">' . esc_html__( 'Edit a copy for review', 'spw' ) . '</a></p>';
-		wp_die( $message, esc_html__( 'Edit live content', 'spw' ), array( 'response' => 200 ) ); // phpcs:ignore WordPress.Security.EscapeOutput -- built from escaped parts.
+		$message = '<h1>' . esc_html__( 'Edit live content', 'publication-theory' ) . '</h1><p>' . esc_html__( 'This item is live. Your changes will be saved as a copy and sent to an editor for review.', 'publication-theory' ) . '</p>'
+			. '<p><a class="button button-primary" href="' . esc_url( self::open_url( $post_id ) ) . '">' . esc_html__( 'Edit a copy for review', 'publication-theory' ) . '</a></p>';
+		wp_die( $message, esc_html__( 'Edit live content', 'publication-theory' ), array( 'response' => 200 ) ); // phpcs:ignore WordPress.Security.EscapeOutput -- built from escaped parts.
 	}
 
 	/**
@@ -1027,7 +1027,7 @@ final class Staging {
 	 */
 	public static function handle_open(): void {
 		$post_id = isset( $_GET['post_id'] ) ? absint( wp_unslash( $_GET['post_id'] ) ) : 0; // phpcs:ignore WordPress.Security.NonceVerification -- verified next line.
-		check_admin_referer( 'spw_open_staged_' . $post_id );
+		check_admin_referer( 'pt_open_staged_' . $post_id );
 		$copy = self::open_for( $post_id, get_current_user_id() );
 		if ( is_wp_error( $copy ) ) {
 			$data = $copy->get_error_data();
@@ -1082,7 +1082,7 @@ final class Staging {
 	 * @param int    $post_id Post.
 	 */
 	public static function kind( $kind, $post_id ): string {
-		return self::is_staged( (int) $post_id ) ? __( 'Staged edit', 'spw' ) : (string) $kind;
+		return self::is_staged( (int) $post_id ) ? __( 'Staged edit', 'publication-theory' ) : (string) $kind;
 	}
 
 	/**
@@ -1114,8 +1114,8 @@ final class Staging {
 		}
 		if ( self::is_staged( $post_id ) ) {
 			return array(
-				'message' => __( 'Proposed version — approve it on the review screen.', 'spw' ),
-				'label'   => __( 'Open review screen', 'spw' ),
+				'message' => __( 'Proposed version — approve it on the review screen.', 'publication-theory' ),
+				'label'   => __( 'Open review screen', 'publication-theory' ),
 				'url'     => self::review_url( $post_id ),
 				'copy'    => $post_id,
 			);
@@ -1128,13 +1128,13 @@ final class Staging {
 			return null;
 		}
 		$holder = get_userdata( (int) get_post_field( 'post_author', $copy ) );
-		$name   = $holder ? $holder->display_name : __( 'another user', 'spw' );
+		$name   = $holder ? $holder->display_name : __( 'another user', 'publication-theory' );
 		return array(
 			'message' => 'pending' === get_post_status( $copy )
-				? __( 'Changes pending review.', 'spw' )
+				? __( 'Changes pending review.', 'publication-theory' )
 				/* translators: %s: user display name */
-				: sprintf( __( 'Staged changes by %s are in draft (returned or not yet submitted).', 'spw' ), $name ),
-			'label'   => __( 'Review staged changes', 'spw' ),
+				: sprintf( __( 'Staged changes by %s are in draft (returned or not yet submitted).', 'publication-theory' ), $name ),
+			'label'   => __( 'Review staged changes', 'publication-theory' ),
 			'url'     => self::review_url( $copy ),
 			'copy'    => $copy,
 		);
@@ -1161,11 +1161,11 @@ final class Staging {
 	 */
 	public static function blocked_publish_notice(): void {
 		$user = get_current_user_id();
-		if ( $user <= 0 || ! get_transient( 'spw_copy_publish_blocked_' . $user ) ) {
+		if ( $user <= 0 || ! get_transient( 'pt_copy_publish_blocked_' . $user ) ) {
 			return;
 		}
-		delete_transient( 'spw_copy_publish_blocked_' . $user );
-		echo '<div class="notice notice-error" role="alert"><p>' . esc_html__( 'This is a proposed version. Use Approve on the review screen.', 'spw' ) . '</p></div>';
+		delete_transient( 'pt_copy_publish_blocked_' . $user );
+		echo '<div class="notice notice-error" role="alert"><p>' . esc_html__( 'This is a proposed version. Use Approve on the review screen.', 'publication-theory' ) . '</p></div>';
 	}
 
 	/**
@@ -1197,7 +1197,7 @@ final class Staging {
 		);
 		wp_add_inline_script(
 			'wp-edit-post',
-			'(function(c){wp.domReady&&wp.domReady(function(){wp.data.dispatch("core/notices").createNotice("warning",c.message,{id:"spw-staged",isDismissible:true,actions:[{label:c.label,url:c.url}]});});})(' . wp_json_encode( $config ) . ');'
+			'(function(c){wp.domReady&&wp.domReady(function(){wp.data.dispatch("core/notices").createNotice("warning",c.message,{id:"pt-staged",isDismissible:true,actions:[{label:c.label,url:c.url}]});});})(' . wp_json_encode( $config ) . ');'
 		);
 	}
 }

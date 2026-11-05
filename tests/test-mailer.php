@@ -1,6 +1,6 @@
 <?php
 if ( ! defined( 'ABSPATH' ) && 'cli' !== PHP_SAPI ) { exit; }
-class SPW_Mailer_Test extends WP_UnitTestCase {
+class PT_Mailer_Test extends WP_UnitTestCase {
 
 	private $author;
 	private $editor1;
@@ -9,7 +9,7 @@ class SPW_Mailer_Test extends WP_UnitTestCase {
 
 	public function set_up() {
 		parent::set_up();
-		delete_option( 'spw_workflow_log' );
+		delete_option( 'pt_workflow_log' );
 		reset_phpmailer_instance();
 		$this->author  = self::factory()->user->create( array( 'role' => 'author', 'display_name' => 'Ann Author', 'user_email' => 'ann@example.org' ) );
 		$this->editor1 = self::factory()->user->create( array( 'role' => 'editor', 'user_email' => 'ed1@example.org' ) );
@@ -19,7 +19,7 @@ class SPW_Mailer_Test extends WP_UnitTestCase {
 
 	public function tear_down() {
 		reset_phpmailer_instance();
-		delete_option( 'spw_workflow_log' );
+		delete_option( 'pt_workflow_log' );
 		parent::tear_down();
 	}
 
@@ -36,7 +36,7 @@ class SPW_Mailer_Test extends WP_UnitTestCase {
 	}
 
 	public function test_submit_emails_each_editor_separately() {
-		SPW\Mailer::notify( 'submitted', $this->post_id, $this->author );
+		PublicationTheory\Mailer::notify( 'submitted', $this->post_id, $this->author );
 		$mailer = tests_retrieve_phpmailer_instance();
 		// Two editors plus the default site admin (also has edit_others_posts).
 		$this->assertCount( 3, $mailer->mock_sent );
@@ -46,12 +46,12 @@ class SPW_Mailer_Test extends WP_UnitTestCase {
 			$this->assertStringContainsString( 'My Draft', $m['subject'] );
 			$this->assertStringContainsString( 'Ann Author', $m['body'] );
 		}
-		$statuses = wp_list_pluck( SPW\Log::entries(), 'status' );
+		$statuses = wp_list_pluck( PublicationTheory\Log::entries(), 'status' );
 		$this->assertSame( array( 'sent', 'sent', 'sent' ), $statuses );
 	}
 
 	public function test_actor_not_emailed() {
-		SPW\Mailer::notify( 'submitted', $this->post_id, $this->editor1 );
+		PublicationTheory\Mailer::notify( 'submitted', $this->post_id, $this->editor1 );
 		$this->assertSame( array( 'admin@example.org', 'ed2@example.org' ), $this->sent_to() );
 	}
 
@@ -62,9 +62,9 @@ class SPW_Mailer_Test extends WP_UnitTestCase {
 		foreach ( get_users( array( 'capability' => 'edit_others_posts' ) ) as $u ) {
 			wp_delete_user( $u->ID );
 		}
-		SPW\Mailer::notify( 'submitted', $this->post_id, $this->author );
+		PublicationTheory\Mailer::notify( 'submitted', $this->post_id, $this->author );
 		$this->assertCount( 0, tests_retrieve_phpmailer_instance()->mock_sent );
-		$entries = SPW\Log::entries();
+		$entries = PublicationTheory\Log::entries();
 		$this->assertCount( 1, $entries );
 		$this->assertSame( 'no_recipients', $entries[0]['status'] );
 		$this->assertSame( 'submitted', $entries[0]['event'] );
@@ -72,8 +72,8 @@ class SPW_Mailer_Test extends WP_UnitTestCase {
 	}
 
 	public function test_sent_back_email_contains_note_and_edit_link() {
-		SPW\Feedback::add( $this->post_id, $this->editor1, 'Please fix the intro.' );
-		SPW\Mailer::notify( 'sent_back', $this->post_id, $this->editor1 );
+		PublicationTheory\Feedback::add( $this->post_id, $this->editor1, 'Please fix the intro.' );
+		PublicationTheory\Mailer::notify( 'sent_back', $this->post_id, $this->editor1 );
 		$mailer = tests_retrieve_phpmailer_instance();
 		$this->assertSame( array( 'ann@example.org' ), $this->sent_to() );
 		$body = $mailer->mock_sent[0]['body'];
@@ -84,22 +84,22 @@ class SPW_Mailer_Test extends WP_UnitTestCase {
 	}
 
 	public function test_author_actor_not_emailed_on_published() {
-		SPW\Mailer::notify( 'published', $this->post_id, $this->author );
+		PublicationTheory\Mailer::notify( 'published', $this->post_id, $this->author );
 		$this->assertCount( 0, tests_retrieve_phpmailer_instance()->mock_sent );
 	}
 
 	public function test_filters_apply() {
-		add_filter( 'spw_email_recipients', fn( $ids ) => array( $this->editor2 ) );
-		add_filter( 'spw_email_message', function ( $m ) {
+		add_filter( 'pt_email_recipients', fn( $ids ) => array( $this->editor2 ) );
+		add_filter( 'pt_email_message', function ( $m ) {
 			$m['subject'] = 'Custom';
 			return $m;
 		} );
-		SPW\Mailer::notify( 'submitted', $this->post_id, $this->author );
+		PublicationTheory\Mailer::notify( 'submitted', $this->post_id, $this->author );
 		$mailer = tests_retrieve_phpmailer_instance();
 		$this->assertSame( array( 'ed2@example.org' ), $this->sent_to() );
 		$this->assertSame( 'Custom', $mailer->mock_sent[0]['subject'] );
-		remove_all_filters( 'spw_email_recipients' );
-		remove_all_filters( 'spw_email_message' );
+		remove_all_filters( 'pt_email_recipients' );
+		remove_all_filters( 'pt_email_message' );
 	}
 
 	public function test_wp_mail_failure_is_logged() {
@@ -108,9 +108,9 @@ class SPW_Mailer_Test extends WP_UnitTestCase {
 		global $wpdb;
 		$wpdb->update( $wpdb->users, array( 'user_email' => 'not-an-email' ), array( 'ID' => $this->author ) );
 		clean_user_cache( $this->author );
-		SPW\Feedback::add( $this->post_id, $this->editor1, 'Nope' );
-		SPW\Mailer::notify( 'sent_back', $this->post_id, $this->editor1 );
-		$entries = SPW\Log::entries();
+		PublicationTheory\Feedback::add( $this->post_id, $this->editor1, 'Nope' );
+		PublicationTheory\Mailer::notify( 'sent_back', $this->post_id, $this->editor1 );
+		$entries = PublicationTheory\Log::entries();
 		$this->assertCount( 1, $entries );
 		$this->assertSame( 'failed', $entries[0]['status'] );
 		$this->assertSame( 'sent_back', $entries[0]['event'] );
@@ -120,9 +120,9 @@ class SPW_Mailer_Test extends WP_UnitTestCase {
 
 	public function test_log_ring_buffer_caps_at_500() {
 		for ( $i = 0; $i < 505; $i++ ) {
-			SPW\Log::record( $i, 'submitted', 'sent', (string) $i );
+			PublicationTheory\Log::record( $i, 'submitted', 'sent', (string) $i );
 		}
-		$entries = SPW\Log::entries();
+		$entries = PublicationTheory\Log::entries();
 		$this->assertCount( 500, $entries );
 		$this->assertSame( 504, $entries[0]['post_id'] );
 	}
@@ -133,20 +133,20 @@ class SPW_Mailer_Test extends WP_UnitTestCase {
 		};
 		add_filter( 'pre_wp_mail', $thrower );
 		try {
-			SPW\Mailer::notify( 'submitted', $this->post_id, $this->author );
+			PublicationTheory\Mailer::notify( 'submitted', $this->post_id, $this->author );
 			$this->fail( 'Expected exception' );
 		} catch ( RuntimeException $e ) {
 			$this->assertSame( 'boom', $e->getMessage() );
 		}
 		remove_filter( 'pre_wp_mail', $thrower );
 		do_action( 'wp_mail_failed', new WP_Error( 'x', 'unrelated' ) );
-		$this->assertSame( array(), SPW\Log::entries() );
+		$this->assertSame( array(), PublicationTheory\Log::entries() );
 	}
 
 	public function test_deleted_author_logs_no_recipients() {
 		wp_update_post( array( 'ID' => $this->post_id, 'post_author' => 0 ) );
-		SPW\Mailer::notify( 'published', $this->post_id, $this->editor1 );
-		$entries = SPW\Log::entries();
+		PublicationTheory\Mailer::notify( 'published', $this->post_id, $this->editor1 );
+		$entries = PublicationTheory\Log::entries();
 		$this->assertCount( 1, $entries );
 		$this->assertSame( 'no_recipients', $entries[0]['status'] );
 		$this->assertSame( 'no resolvable recipients', $entries[0]['detail'] );
@@ -155,7 +155,7 @@ class SPW_Mailer_Test extends WP_UnitTestCase {
 
 	public function test_title_entities_decoded() {
 		wp_update_post( array( 'ID' => $this->post_id, 'post_title' => "Tom's & Jerry" ) );
-		SPW\Mailer::notify( 'submitted', $this->post_id, $this->author );
+		PublicationTheory\Mailer::notify( 'submitted', $this->post_id, $this->author );
 		$m = tests_retrieve_phpmailer_instance()->mock_sent[0];
 		$this->assertStringContainsString( "Tom\u{2019}s & Jerry", $m['body'] );
 		$this->assertStringContainsString( "Tom\u{2019}s & Jerry", $m['subject'] );

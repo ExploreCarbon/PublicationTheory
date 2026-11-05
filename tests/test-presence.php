@@ -1,6 +1,6 @@
 <?php
 if ( ! defined( 'ABSPATH' ) && 'cli' !== PHP_SAPI ) { exit; }
-class SPW_Presence_Test extends WP_UnitTestCase {
+class PT_Presence_Test extends WP_UnitTestCase {
 
 	private $author;
 	private $author_b;
@@ -20,40 +20,40 @@ class SPW_Presence_Test extends WP_UnitTestCase {
 	}
 
 	private function ask( int $post_id ): array {
-		return SPW\Presence::filter_heartbeat( array(), array( 'spw_presence' => array( 'post_id' => $post_id ) ) );
+		return PublicationTheory\Presence::filter_heartbeat( array(), array( 'pt_presence' => array( 'post_id' => $post_id ) ) );
 	}
 
 	public function test_presence_lists_other_editor() {
 		$id = $this->post_locked_by( $this->editor );
 		wp_set_current_user( $this->author );
 		$res = $this->ask( $id );
-		$this->assertCount( 1, $res['spw_presence']['users'] );
-		$this->assertSame( $this->editor, $res['spw_presence']['users'][0]['id'] );
-		$this->assertSame( 'Ed', $res['spw_presence']['users'][0]['name'] );
-		$this->assertArrayNotHasKey( 'avatar_url', $res['spw_presence']['users'][0] );
+		$this->assertCount( 1, $res['pt_presence']['users'] );
+		$this->assertSame( $this->editor, $res['pt_presence']['users'][0]['id'] );
+		$this->assertSame( 'Ed', $res['pt_presence']['users'][0]['name'] );
+		$this->assertArrayNotHasKey( 'avatar_url', $res['pt_presence']['users'][0] );
 	}
 
 	public function test_presence_excludes_self() {
 		$id = $this->post_locked_by( $this->author );
 		wp_set_current_user( $this->author );
-		$this->assertSame( array(), $this->ask( $id )['spw_presence']['users'] );
+		$this->assertSame( array(), $this->ask( $id )['pt_presence']['users'] );
 	}
 
 	public function test_presence_ignores_stale_lock() {
 		$id = self::factory()->post->create( array( 'post_author' => $this->author, 'post_status' => 'draft' ) );
 		update_post_meta( $id, '_edit_lock', ( time() - DAY_IN_SECONDS ) . ':' . $this->editor );
 		wp_set_current_user( $this->author );
-		$this->assertSame( array(), $this->ask( $id )['spw_presence']['users'] );
+		$this->assertSame( array(), $this->ask( $id )['pt_presence']['users'] );
 	}
 
 	public function test_no_presence_for_user_who_cannot_edit_post() {
 		$id = $this->post_locked_by( $this->editor );
 		wp_set_current_user( $this->author_b ); // Not the author, no edit_others_posts.
-		$this->assertArrayNotHasKey( 'spw_presence', $this->ask( $id ) );
+		$this->assertArrayNotHasKey( 'pt_presence', $this->ask( $id ) );
 	}
 
 	public function test_no_presence_without_request_key() {
 		wp_set_current_user( $this->author );
-		$this->assertSame( array(), SPW\Presence::filter_heartbeat( array(), array() ) );
+		$this->assertSame( array(), PublicationTheory\Presence::filter_heartbeat( array(), array() ) );
 	}
 }

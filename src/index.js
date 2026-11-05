@@ -6,14 +6,14 @@ import initPresence from './presence';
 
 initPresence();
 
-const config = window.spwWorkflow || {};
+const config = window.ptWorkflow || {};
 
-registerPlugin( 'spw-workflow', {
+registerPlugin( 'pt-workflow', {
 	render: () => (
 		<PluginDocumentSettingPanel
-			name="spw-workflow"
-			title={ __( 'Review workflow', 'spw' ) }
-			className="spw-workflow-panel"
+			name="pt-workflow"
+			title={ __( 'Review workflow', 'publication-theory' ) }
+			className="pt-workflow-panel"
 		>
 			<Panel canPublish={ !! config.canPublish } />
 		</PluginDocumentSettingPanel>
